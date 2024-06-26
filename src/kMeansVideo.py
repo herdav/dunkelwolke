@@ -15,7 +15,7 @@ def get_unique_filename(base_path, base_name, ext):
     id += 1
   return f"{base_path}/{base_name}_{id}{ext}"
 
-def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, kmeans=None, grayscale=False, show_center=False):
+def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, kmeans=None, grayscale=False, show_center=False, fill_cluster=False):
   if grayscale:
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -26,7 +26,6 @@ def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, k
   cv2.circle(mask, center, radius, (255), thickness=-1)
   
   image = cv2.bitwise_and(frame, frame, mask=mask)
-  image = cv2.resize(image, (900, 900))
   image_np = np.array(image)
 
   if image_np.shape[2] == 4:
@@ -47,9 +46,26 @@ def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, k
   mask_labels = (labels == selected_cluster)
   masked_labels = np.where(mask_labels.reshape(image_np.shape[:2]), labels.reshape(image_np.shape[:2]), -1)
 
+  if fill_cluster:
+    # Create a new filled area by subtracting the cluster mask from the circle mask
+    new_fill_area = mask.copy()
+    new_fill_area[mask_labels.reshape(image_np.shape[:2])] = 0
+    fill_img = np.zeros_like(frame)
+    fill_img[np.where(new_fill_area == 255)] = [int(c * 255) for c in boundary_color]
+    
+    # Create inverted filled area
+    inverted_fill_img = np.zeros_like(frame)
+    inverted_fill_img[np.where(mask_labels.reshape(image_np.shape[:2]))] = [int(c * 255) for c in boundary_color]
+    inverted_fill_img = cv2.bitwise_and(inverted_fill_img, inverted_fill_img, mask=mask)
+
+    frame = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
+    frame = cv2.add(frame, fill_img)
+  else:
+    fill_img = None
+    inverted_fill_img = None
+
   boundary_img = mark_boundaries(np.zeros_like(segmented_img), masked_labels, color=boundary_color, mode='thick')
   boundary_img = (boundary_img * 255).astype(np.uint8)
-  boundary_img = cv2.resize(boundary_img, (frame.shape[1], frame.shape[0]))
 
   frame_with_boundaries = cv2.addWeighted(frame, 1, boundary_img, 1, 0)
   cv2.circle(frame_with_boundaries, center, radius, (255, 255, 255), 2)
@@ -58,17 +74,20 @@ def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, k
     center_x, center_y = np.mean(np.where(mask_labels.reshape(image_np.shape[:2])), axis=1).astype(int)
     cv2.drawMarker(frame_with_boundaries, (center_y, center_x), color=tuple(int(c * 255) for c in boundary_color), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
 
-  return frame_with_boundaries, boundary_img, kmeans
+  return frame_with_boundaries, boundary_img, kmeans, inverted_fill_img
 
 def update_preview():
-  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, show_center_var, radius_var
+  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, show_center_var, radius_var, fill_cluster_var
   if preview_frame is not None:
     radius = int(radius_var.get() / 100 * (preview_frame.shape[1] // 2))
-    preview_with_boundaries, _, kmeans = process_frame(
+    preview_with_boundaries, _, kmeans, filled_only_img = process_frame(
       preview_frame, num_colors, selected_cluster, boundary_color, radius,
-      kmeans, grayscale_var.get(), show_center_var.get()
+      kmeans, grayscale_var.get(), show_center_var.get(), fill_cluster_var.get()
     )
-    preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
+    if fill_cluster_var.get():
+      preview_image = Image.fromarray(cv2.cvtColor(filled_only_img, cv2.COLOR_BGR2RGB))
+    else:
+      preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
     preview_photo = ImageTk.PhotoImage(preview_image)
     preview_label.config(image=preview_photo)
     preview_label.image = preview_photo
@@ -120,12 +139,13 @@ def update_radius(val):
 def start_processing():
   export_original = export_original_var.get()
   export_boundary = export_boundary_var.get()
+  export_filled = fill_cluster_var.get()
   output_dir = filedialog.askdirectory(title="Select Output Directory")
   if output_dir:
-    process_video(export_original, export_boundary, output_dir)
+    process_video(export_original, export_boundary, export_filled, output_dir)
 
-def process_video(export_original, export_boundary, output_dir):
-  global cap, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, show_center_var, radius_var
+def process_video(export_original, export_boundary, export_filled, output_dir):
+  global cap, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, show_center_var, radius_var, fill_cluster_var
 
   # Initialize video writers
   fourcc = cv2.VideoWriter_fourcc(*'XVID')
@@ -135,6 +155,9 @@ def process_video(export_original, export_boundary, output_dir):
   if export_boundary:
     outline_output_path = get_unique_filename(output_dir, 'outline', '.avi')
     outline_out = cv2.VideoWriter(outline_output_path, fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
+  if export_filled:
+    filled_output_path = get_unique_filename(output_dir, 'filled', '.avi')
+    filled_out = cv2.VideoWriter(filled_output_path, fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
 
   # Rewind the video to the start
   cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -154,9 +177,9 @@ def process_video(export_original, export_boundary, output_dir):
 
     # Process the frame
     radius = int(radius_var.get() / 100 * (frame.shape[1] // 2))
-    frame_with_boundaries, boundary_img, kmeans = process_frame(
+    frame_with_boundaries, boundary_img, kmeans, filled_only_img = process_frame(
       frame, num_colors, selected_cluster, boundary_color, radius,
-      kmeans, grayscale_var.get(), show_center_var.get()
+      kmeans, grayscale_var.get(), show_center_var.get(), fill_cluster_var.get()
     )
 
     # Write the frames to the videos
@@ -164,6 +187,8 @@ def process_video(export_original, export_boundary, output_dir):
       out.write(frame_with_boundaries)
     if export_boundary:
       outline_out.write(boundary_img)
+    if export_filled:
+      filled_out.write(filled_only_img)
 
     # Update progress bar
     progress_bar['value'] = frame_num + 1
@@ -175,6 +200,8 @@ def process_video(export_original, export_boundary, output_dir):
     out.release()
   if export_boundary:
     outline_out.release()
+  if export_filled:
+    filled_out.release()
   cv2.destroyAllWindows()
 
   messagebox.showinfo("Info", "Video processing completed and saved.")
@@ -302,6 +329,7 @@ export_original_var = tk.IntVar(value=1)
 export_boundary_var = tk.IntVar(value=1)
 grayscale_var = tk.IntVar(value=0)
 show_center_var = tk.IntVar(value=0)
+fill_cluster_var = tk.IntVar(value=0)
 
 chk_export_original = tk.Checkbutton(right_frame, text="Export Original Video", variable=export_original_var)
 chk_export_original.grid(row=11, column=0, columnspan=2, pady=5)
@@ -315,24 +343,27 @@ chk_grayscale.grid(row=13, column=0, columnspan=2, pady=5)
 chk_show_center = tk.Checkbutton(right_frame, text="Show Cluster Center", variable=show_center_var, command=toggle_show_center)
 chk_show_center.grid(row=14, column=0, columnspan=2, pady=5)
 
+chk_fill_cluster = tk.Checkbutton(right_frame, text="Fill Selected Cluster", variable=fill_cluster_var, command=update_preview)
+chk_fill_cluster.grid(row=15, column=0, columnspan=2, pady=5)
+
 btn_start_processing = tk.Button(right_frame, text="Export Video", command=start_processing)
-btn_start_processing.grid(row=15, column=0, columnspan=2, pady=10)
+btn_start_processing.grid(row=16, column=0, columnspan=2, pady=10)
 
 # Add a progress bar
 progress_bar = ttk.Progressbar(right_frame, orient='horizontal', mode='determinate')
-progress_bar.grid(row=16, column=0, columnspan=2, pady=10, sticky="ew")
+progress_bar.grid(row=17, column=0, columnspan=2, pady=10, sticky="ew")
 
 # Add frame slider
 frame_slider = tk.Scale(right_frame, from_=0, to=total_frames - 1, orient='horizontal', command=update_frame)
-frame_slider.grid(row=17, column=0, columnspan=2, pady=10, sticky="ew")
+frame_slider.grid(row=18, column=0, columnspan=2, pady=10, sticky="ew")
 
 btn_prev_frame = tk.Button(right_frame, text="Previous Frame", command=prev_frame)
-btn_prev_frame.grid(row=18, column=0, pady=10)
+btn_prev_frame.grid(row=19, column=0, pady=10)
 
 btn_next_frame = tk.Button(right_frame, text="Next Frame", command=next_frame)
-btn_next_frame.grid(row=18, column=1, pady=10)
+btn_next_frame.grid(row=19, column=1, pady=10)
 
 btn_exit = tk.Button(right_frame, text="Exit", command=root.destroy)
-btn_exit.grid(row=19, column=0, columnspan=2, pady=10)
+btn_exit.grid(row=20, column=0, columnspan=2, pady=10)
 
 root.mainloop()
