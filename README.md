@@ -2,4 +2,4 @@
 
 
 ### GUI
-![capture](https://github.com/herdav/dunkelwolke/blob/master/gui.png)
+![capture](https://github.com/herdav/dunkelwolke/blob/main/gui.png)
