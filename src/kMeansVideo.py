@@ -10,6 +10,11 @@ from tkinter import messagebox, filedialog, ttk
 from PIL import Image, ImageTk
 
 stop_processing = False  # Global variable to handle stop request
+center_org = []
+center_val = []
+t_val_frames = []
+t_org_frames = []
+center_paths = []
 
 def get_unique_filename(base_path, base_name, ext):
   id = 0
@@ -75,28 +80,32 @@ def process_frame(frame, num_colors, selected_cluster, boundary_color, radius, k
   return frame_with_boundaries, boundary_img, kmeans, inverted_fill_img
 
 def update_preview():
-  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, second_kmeans_var, second_kmeans_clusters_var, merge_threshold_var, show_cluster_number_var, connection_count_var, previous_centers
+  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, show_second_kmeans_var, second_kmeans_clusters_var, merge_threshold_var, t_val_var, show_cluster_number_var, connection_count_var, t_exist_var, previous_centers, center_org, center_val, t_val_frames, center_val_var, center_paths
   if preview_frame is not None:
     radius = int(radius_var.get() / 100 * (preview_frame.shape[1] // 2))
     preview_with_boundaries, _, kmeans, filled_only_img = process_frame(
       preview_frame, num_colors, selected_cluster, boundary_color, radius,
       kmeans, grayscale_var.get(), fill_cluster_var.get()
     )
-    
-    if second_kmeans_var.get():
-      # Always generate the filled_only_img for second K-means, but don't show it in the preview
-      if filled_only_img is None:
-        _, _, _, filled_only_img = process_frame(
-          preview_frame, num_colors, selected_cluster, boundary_color, radius,
-          kmeans, grayscale_var.get(), True
-        )
-      second_kmeans_clusters = second_kmeans_clusters_var.get()
-      second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
-      second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), preview_frame.shape[:2])
-      assign_stable_ids(second_centers, previous_centers, merge_threshold_var.get())
-      draw_lines_and_markers(preview_with_boundaries, second_centers, connection_count_var.get(), show_cluster_number_var.get(), merge_threshold_var.get())
-      previous_centers = second_centers
-    
+
+    # Always generate the filled_only_img for second K-means
+    if filled_only_img is None:
+      _, _, _, filled_only_img = process_frame(
+        preview_frame, num_colors, selected_cluster, boundary_color, radius,
+        kmeans, grayscale_var.get(), True
+      )
+    second_kmeans_clusters = second_kmeans_clusters_var.get()
+    second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
+    second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), preview_frame.shape[:2])
+    update_centers(second_centers, merge_threshold_var.get(), t_val_var.get(), t_exist_var.get(), second_kmeans_clusters)
+
+    if show_second_kmeans_var.get():
+      draw_lines_and_markers(preview_with_boundaries, second_centers, connection_count_var.get(), merge_threshold_var.get())
+
+    if center_val_var.get():
+      draw_center_val(preview_with_boundaries, center_val, merge_threshold_var.get())
+      draw_center_val_paths(preview_with_boundaries, center_val, center_paths, merge_threshold_var.get())
+
     preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
     preview_photo = ImageTk.PhotoImage(preview_image)
     preview_label.config(image=preview_photo)
@@ -104,19 +113,36 @@ def update_preview():
 
     num_colors_label.config(text=str(num_colors))
     selected_cluster_label.config(text=str(selected_cluster))
-    
-def draw_lines_and_markers(image, centers, connection_count, show_cluster_number, merge_threshold):
+
+def draw_lines_and_markers(image, centers, connection_count, merge_threshold):
   for i, center in enumerate(centers):
     cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(0, 255, 0), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-    cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (0, 255, 0), 1)
-    if show_cluster_number:
-      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (0, 255, 0), 2)
   for i, center in enumerate(centers):
     distances = np.linalg.norm(centers - center, axis=1)
     closest_indices = distances.argsort()[1:connection_count+1]
     for idx in closest_indices:
       closest_center = centers[idx]
-      cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (0, 255, 0), 1)
+      cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (0, 255, 0), 2)
+
+def draw_center_val(image, centers, merge_threshold):
+  for i, center in enumerate(centers):
+    cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+    cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (255, 0, 255), 2)
+    if show_cluster_number_var.get():
+      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+    distances = np.linalg.norm(np.array(centers) - center, axis=1)
+    closest_indices = distances.argsort()[1:connection_count_var.get()+1]
+    for idx in closest_indices:
+      closest_center = centers[idx]
+      cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 255), 2)
+
+def draw_center_val_paths(image, paths):
+  for path in paths:
+    if len(path) > 1:
+      for j in range(1, len(path)):
+        cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), (255, 0, 255), 2)
+        cv2.circle(image, (int(path[j][1]), int(path[j][0])), 2, (255, 0, 255), -1)  # Draw a small circle at each path point
 
 def decrease_colors():
   global num_colors, selected_cluster, kmeans
@@ -142,14 +168,6 @@ def increase_cluster():
   if selected_cluster < num_colors - 1:
     selected_cluster += 1
     update_preview()
-
-def update_boundary_color():
-  global boundary_color
-  r = boundary_r_var.get() / 255.0
-  g = boundary_g_var.get() / 255.0
-  b = boundary_b_var.get() / 255.0
-  boundary_color = (r, g, b)
-  update_preview()
 
 def toggle_grayscale():
   update_preview()
@@ -191,32 +209,176 @@ def merge_close_centers(centers, threshold_percent, image_shape):
     merged_centers.append(merged_center)
   return np.array(merged_centers)
 
-def assign_stable_ids(new_centers, old_centers, threshold):
-  global center_ids
-  if old_centers is None:
-    center_ids = list(range(len(new_centers)))
+def update_centers(new_centers, merge_threshold, t_val, t_exist, max_centers):
+  global center_org, center_val, t_val_frames, t_org_frames, center_paths
+  if len(center_val) == 0:
+    center_val = new_centers.tolist()[:max_centers]  # Limit to max_centers
+    t_val_frames = [t_val] * len(center_val)
+    center_paths = [[center] for center in center_val]  # Initialize paths
     return
 
-  assigned_ids = [-1] * len(new_centers)
-  for i, new_center in enumerate(new_centers):
-    min_distance = float('inf')
-    min_index = -1
-    for j, old_center in enumerate(old_centers):
-      distance = np.linalg.norm(new_center - old_center)
-      if distance < min_distance and distance < threshold:
-        min_distance = distance
-        min_index = j
-    if min_index != -1:
-      assigned_ids[i] = center_ids[min_index]
+  # Update existing center_val with new_centers
+  for new_center in new_centers:
+    merged = False
+    for i, val_center in enumerate(center_val):
+      if np.linalg.norm(new_center[:2] - val_center[:2]) < merge_threshold:
+        center_val[i] = (np.array(val_center) * (t_val_frames[i] - 1) + np.array(new_center)) / t_val_frames[i]
+        t_val_frames[i] = t_val
+        center_paths[i].append(new_center)  # Add to path
+        merged = True
+        break
+    if not merged:
+      center_org.append(new_center.tolist())
+      t_org_frames.append(t_exist)
 
-  next_id = max(center_ids) + 1 if center_ids else 0
-  for i in range(len(assigned_ids)):
-    if assigned_ids[i] == -1:
-      assigned_ids[i] = next_id
-      next_id += 1
+  # Merge overlapping center_val
+  i = 0
+  while i < len(center_val):
+    j = i + 1
+    while j < len(center_val):
+      if np.linalg.norm(np.array(center_val[i][:2]) - np.array(center_val[j][:2])) < merge_threshold:
+        center_val[i] = (np.array(center_val[i]) + np.array(center_val[j])) / 2
+        center_paths[i].extend(center_paths[j])  # Merge paths
+        del center_val[j]
+        del t_val_frames[j]
+        del center_paths[j]
+      else:
+        j += 1
+    i += 1
 
-  center_ids = assigned_ids
+  # Apply moving average and remove old centers
+  for i in range(len(center_val)):
+    if t_val_frames[i] > 1:
+      center_val[i] = (np.array(center_val[i]) * (t_val_frames[i] - 1) + np.array(center_val[i])) / t_val_frames[i]
+    t_val_frames[i] -= 1
 
+  # Remove centers that have not been updated for t_val frames
+  center_val = [center for i, center in enumerate(center_val) if t_val_frames[i] > 0]
+  t_val_frames = [t for t in t_val_frames if t > 0]
+  center_paths = [path for i, path in enumerate(center_paths) if i < len(center_val)]
+
+  # Process new centers that have existed for t_exist frames
+  new_stable_centers = []
+  new_t_val_frames = []
+  new_paths = []
+  for i, new_center in enumerate(center_org):
+    t_org_frames[i] -= 1
+    if t_org_frames[i] <= 0:
+      existing = False
+      for j, val_center in enumerate(center_val):
+        if np.linalg.norm(np.array(new_center[:2]) - np.array(val_center[:2])) < merge_threshold:
+          existing = True
+          break
+      if not existing:
+        new_stable_centers.append(new_center)
+        new_t_val_frames.append(t_val)
+        new_paths.append([new_center])
+
+  center_val.extend(new_stable_centers)
+  t_val_frames.extend(new_t_val_frames)
+  center_paths.extend(new_paths)
+
+  center_org = [center for i, center in enumerate(center_org) if t_org_frames[i] > 0]
+  t_org_frames = [t for t in t_org_frames if t > 0]
+
+  # Merge overlapping center_val again to ensure no overlap
+  i = 0
+  while i < len(center_val):
+    j = i + 1
+    while j < len(center_val):
+      if np.linalg.norm(np.array(center_val[i][:2]) - np.array(center_val[j][:2])) < merge_threshold:
+        center_val[i] = (np.array(center_val[i]) + np.array(center_val[j])) / 2
+        center_paths[i].extend(center_paths[j])  # Merge paths
+        del center_val[j]
+        del t_val_frames[j]
+        del center_paths[j]
+      else:
+        j += 1
+    i += 1
+
+  # Limit the number of center_val to max_centers
+  if len(center_val) > max_centers:
+    center_val = center_val[:max_centers]
+    t_val_frames = t_val_frames[:max_centers]
+    center_paths = center_paths[:max_centers]
+
+  # Ensure that center_paths has the same length as center_val and t_val_frames
+  if len(center_paths) > len(center_val):
+    center_paths = center_paths[:len(center_val)]
+  elif len(center_paths) < len(center_val):
+    for _ in range(len(center_val) - len(center_paths)):
+      center_paths.append([])
+      
+def update_preview():
+  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, show_second_kmeans_var, second_kmeans_clusters_var, merge_threshold_var, t_val_var, show_cluster_number_var, connection_count_var, t_exist_var, previous_centers, center_org, center_val, t_val_frames, center_val_var, center_paths
+  if preview_frame is not None:
+    radius = int(radius_var.get() / 100 * (preview_frame.shape[1] // 2))
+    preview_with_boundaries, _, kmeans, filled_only_img = process_frame(
+      preview_frame, num_colors, selected_cluster, boundary_color, radius,
+      kmeans, grayscale_var.get(), fill_cluster_var.get()
+    )
+
+    # Always generate the filled_only_img for second K-means
+    if filled_only_img is None:
+      _, _, _, filled_only_img = process_frame(
+        preview_frame, num_colors, selected_cluster, boundary_color, radius,
+        kmeans, grayscale_var.get(), True
+      )
+    second_kmeans_clusters = second_kmeans_clusters_var.get()
+    second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
+    second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), preview_frame.shape[:2])
+    update_centers(second_centers, merge_threshold_var.get(), t_val_var.get(), t_exist_var.get(), second_kmeans_clusters)
+
+    if show_second_kmeans_var.get():
+      draw_lines_and_markers(preview_with_boundaries, second_centers, connection_count_var.get(), merge_threshold_var.get())
+
+    if center_val_var.get():
+      draw_center_val(preview_with_boundaries, center_val, merge_threshold_var.get())
+      draw_center_val_paths(preview_with_boundaries, center_val, center_paths, merge_threshold_var.get())
+
+    preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
+    preview_photo = ImageTk.PhotoImage(preview_image)
+    preview_label.config(image=preview_photo)
+    preview_label.image = preview_photo
+
+    num_colors_label.config(text=str(num_colors))
+    selected_cluster_label.config(text=str(selected_cluster))    
+
+def update_preview():
+  global preview_frame, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, show_second_kmeans_var, second_kmeans_clusters_var, merge_threshold_var, t_val_var, show_cluster_number_var, connection_count_var, t_exist_var, previous_centers, center_org, center_val, t_val_frames, center_val_var, center_paths
+  if preview_frame is not None:
+    radius = int(radius_var.get() / 100 * (preview_frame.shape[1] // 2))
+    preview_with_boundaries, _, kmeans, filled_only_img = process_frame(
+      preview_frame, num_colors, selected_cluster, boundary_color, radius,
+      kmeans, grayscale_var.get(), fill_cluster_var.get()
+    )
+
+    # Always generate the filled_only_img for second K-means
+    if filled_only_img is None:
+      _, _, _, filled_only_img = process_frame(
+        preview_frame, num_colors, selected_cluster, boundary_color, radius,
+        kmeans, grayscale_var.get(), True
+      )
+    second_kmeans_clusters = second_kmeans_clusters_var.get()
+    second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
+    second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), preview_frame.shape[:2])
+    update_centers(second_centers, merge_threshold_var.get(), t_val_var.get(), t_exist_var.get(), second_kmeans_clusters)
+
+    if show_second_kmeans_var.get():
+      draw_lines_and_markers(preview_with_boundaries, second_centers, connection_count_var.get(), merge_threshold_var.get())
+
+    if center_val_var.get():
+      draw_center_val(preview_with_boundaries, center_val, merge_threshold_var.get())
+      draw_center_val_paths(preview_with_boundaries, center_paths)
+
+    preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
+    preview_photo = ImageTk.PhotoImage(preview_image)
+    preview_label.config(image=preview_photo)
+    preview_label.image = preview_photo
+
+    num_colors_label.config(text=str(num_colors))
+    selected_cluster_label.config(text=str(selected_cluster))
+       
 def start_processing():
   global stop_processing
   stop_processing = False
@@ -231,7 +393,7 @@ def stop_processing():
   stop_processing = True
 
 def process_video(export_original, export_separate, output_dir):
-  global cap, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, second_kmeans_clusters_var, merge_threshold_var, previous_centers, connection_count_var
+  global cap, num_colors, selected_cluster, boundary_color, kmeans, grayscale_var, radius_var, fill_cluster_var, second_kmeans_clusters_var, merge_threshold_var, t_val_var, t_exist_var, previous_centers, connection_count_var, center_org, center_val, t_val_frames, t_org_frames, center_paths
 
   # Initialize video writers
   fourcc = cv2.VideoWriter_fourcc(*'XVID')
@@ -272,20 +434,21 @@ def process_video(export_original, export_separate, output_dir):
       kmeans, grayscale_var.get(), fill_cluster_var.get()
     )
 
-    if second_kmeans_var.get() and filled_only_img is None:
+    if filled_only_img is None:
       _, _, _, filled_only_img = process_frame(
         frame, num_colors, selected_cluster, boundary_color, radius,
         kmeans, grayscale_var.get(), True
       )
 
-    if second_kmeans_var.get():
-      second_kmeans_clusters = second_kmeans_clusters_var.get()
-      second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
-      if len(second_centers) > 0:
-        second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), frame.shape[:2])
-        assign_stable_ids(second_centers, previous_centers, merge_threshold_var.get())
-        draw_lines_and_markers(frame_with_boundaries, second_centers, connection_count_var.get(), show_cluster_number_var.get(), merge_threshold_var.get())
-        previous_centers = second_centers
+    second_kmeans_clusters = second_kmeans_clusters_var.get()
+    second_centers = perform_second_kmeans(filled_only_img, second_kmeans_clusters)
+    if len(second_centers) > 0:
+      second_centers = merge_close_centers(second_centers, merge_threshold_var.get(), frame.shape[:2])
+      update_centers(second_centers, merge_threshold_var.get(), t_val_var.get(), t_exist_var.get(), second_kmeans_clusters)
+      if show_second_kmeans_var.get():
+        draw_lines_and_markers(frame_with_boundaries, second_centers, connection_count_var.get(), merge_threshold_var.get())
+      draw_center_val(frame_with_boundaries, center_val, merge_threshold_var.get())
+      draw_center_val_paths(frame_with_boundaries, center_paths)
 
     # Write the frames to the videos
     if export_original:
@@ -314,7 +477,7 @@ def process_video(export_original, export_separate, output_dir):
     messagebox.showinfo("Info", "Video processing stopped.")
   else:
     messagebox.showinfo("Info", "Video processing completed and saved.")
-
+    
 def select_video():
   global cap, preview_frame, kmeans, current_frame_index, total_frames, previous_centers, center_ids
   video_path = filedialog.askopenfilename(filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")])
@@ -336,7 +499,7 @@ def select_video():
     video_path_label.config(text="Bitte Video laden")  # Zeigt "Bitte Video laden" an, wenn kein Video geladen ist
 
 def reset_parameters():
-  global num_colors, selected_cluster, boundary_color, grayscale_var, radius_var, fill_cluster_var, second_kmeans_clusters_var, merge_threshold_var, connection_count_var, show_cluster_number_var
+  global num_colors, selected_cluster, boundary_color, grayscale_var, radius_var, fill_cluster_var, second_kmeans_clusters_var, merge_threshold_var, t_val_var, connection_count_var, t_exist_var, show_cluster_number_var, show_second_kmeans_var
   num_colors = 4
   selected_cluster = 0
   boundary_color = (0, 1, 0)
@@ -345,8 +508,11 @@ def reset_parameters():
   fill_cluster_var.set(0)
   second_kmeans_clusters_var.set(4)
   merge_threshold_var.set(20)
+  t_val_var.set(5)
+  t_exist_var.set(5)
   connection_count_var.set(1)
   show_cluster_number_var.set(1)
+  show_second_kmeans_var.set(1)
   update_preview()
 
 def update_frame(index):
@@ -417,15 +583,6 @@ btn_increase_cluster.grid(row=5, column=0, pady=2)
 btn_decrease_cluster = tk.Button(right_frame, text="-", command=decrease_cluster)
 btn_decrease_cluster.grid(row=5, column=1, pady=2)
 
-# Create sliders to adjust boundary color
-tk.Label(right_frame, text="Boundary Color (RGB)").grid(row=6, column=0, pady=2, sticky='w')
-boundary_r_var = tk.IntVar(value=int(boundary_color[0] * 255))
-tk.Scale(right_frame, from_=0, to=255, orient='horizontal', variable=boundary_r_var, command=lambda x: update_boundary_color()).grid(row=6, column=3, pady=0)
-boundary_g_var = tk.IntVar(value=int(boundary_color[1] * 255))
-tk.Scale(right_frame, from_=0, to=255, orient='horizontal', variable=boundary_g_var, command=lambda x: update_boundary_color()).grid(row=6, column=2, pady=0)
-boundary_b_var = tk.IntVar(value=int(boundary_color[2] * 255))
-tk.Scale(right_frame, from_=0, to=255, orient='horizontal', variable=boundary_b_var, command=lambda x: update_boundary_color()).grid(row=6, column=1, pady=0)
-
 # Create slider to adjust radius
 tk.Label(right_frame, text="Radius (%)").grid(row=7, column=0, pady=2, sticky='w')
 radius_var = tk.IntVar(value=80)
@@ -441,55 +598,69 @@ tk.Label(right_frame, text="Merge Threshold (%)").grid(row=9, column=0, pady=2, 
 merge_threshold_var = tk.IntVar(value=20)
 tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=merge_threshold_var, command=lambda x: update_preview()).grid(row=9, column=1, pady=2, sticky='w')
 
+# Create slider to adjust t_val
+tk.Label(right_frame, text="t_val (frames)").grid(row=10, column=0, pady=2, sticky='w')
+t_val_var = tk.IntVar(value=10)
+tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=t_val_var, command=lambda x: update_preview()).grid(row=10, column=1, pady=2, sticky='w')
+
+# Create slider to adjust t_exist
+tk.Label(right_frame, text="t_exist (frames)").grid(row=11, column=0, pady=2, sticky='w')
+t_exist_var = tk.IntVar(value=20)
+tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=t_exist_var, command=lambda x: update_preview()).grid(row=11, column=1, pady=2, sticky='w')
+
 # Create slider to adjust the number of connections between centers
-tk.Label(right_frame, text="Number of Connections").grid(row=10, column=0, pady=2, sticky='w')
-connection_count_var = tk.IntVar(value=1)
-tk.Scale(right_frame, from_=0, to=20, orient='horizontal', variable=connection_count_var, command=lambda x: update_preview()).grid(row=10, column=1, pady=2, sticky='w')
+tk.Label(right_frame, text="Number of Connections").grid(row=12, column=0, pady=2, sticky='w')
+connection_count_var = tk.IntVar(value=0)
+tk.Scale(right_frame, from_=0, to=4, orient='horizontal', variable=connection_count_var, command=lambda x: update_preview()).grid(row=12, column=1, pady=2, sticky='w')
 
 # Create checkboxes to select options
 export_original_var = tk.IntVar(value=1)
 export_separate_var = tk.IntVar(value=0)
 grayscale_var = tk.IntVar(value=1)
 fill_cluster_var = tk.IntVar(value=0)
-second_kmeans_var = tk.IntVar(value=1)
+show_second_kmeans_var = tk.IntVar(value=1)
+center_val_var = tk.IntVar(value=1)
 show_cluster_number_var = tk.IntVar(value=1)
 
 chk_export_original = tk.Checkbutton(right_frame, text="Export Original Video", variable=export_original_var)
-chk_export_original.grid(row=11, column=0, sticky='w', pady=2)
+chk_export_original.grid(row=13, column=0, sticky='w', pady=2)
 
 chk_export_separate = tk.Checkbutton(right_frame, text="Export All Layers Separately", variable=export_separate_var)
-chk_export_separate.grid(row=12, column=0, sticky='w', pady=2)
+chk_export_separate.grid(row=14, column=0, sticky='w', pady=2)
 
 chk_grayscale = tk.Checkbutton(right_frame, text="Display Grayscale Video", variable=grayscale_var, command=toggle_grayscale)
-chk_grayscale.grid(row=13, column=0, sticky='w', pady=2)
+chk_grayscale.grid(row=15, column=0, sticky='w', pady=2)
 
 chk_fill_cluster = tk.Checkbutton(right_frame, text="Fill Selected Cluster", variable=fill_cluster_var, command=update_preview)
-chk_fill_cluster.grid(row=14, column=0, sticky='w', pady=2)
+chk_fill_cluster.grid(row=16, column=0, sticky='w', pady=2)
 
-chk_second_kmeans = tk.Checkbutton(right_frame, text="Second K-means", variable=second_kmeans_var, command=update_preview)
-chk_second_kmeans.grid(row=15, column=0, sticky='w', pady=2)
+chk_show_second_kmeans = tk.Checkbutton(right_frame, text="Show Second K-means", variable=show_second_kmeans_var, command=update_preview)
+chk_show_second_kmeans.grid(row=17, column=0, sticky='w', pady=2)
+
+chk_center_val = tk.Checkbutton(right_frame, text="Show Center Val", variable=center_val_var, command=update_preview)
+chk_center_val.grid(row=18, column=0, sticky='w', pady=2)
 
 chk_show_cluster_number = tk.Checkbutton(right_frame, text="Show Cluster Number", variable=show_cluster_number_var, command=update_preview)  # Checkbox for showing cluster number
-chk_show_cluster_number.grid(row=16, column=0, sticky='w', pady=2)
+chk_show_cluster_number.grid(row=19, column=0, sticky='w', pady=2)
 
 # Add frame slider
 frame_slider = tk.Scale(right_frame, from_=0, to=total_frames - 1, orient='horizontal', command=update_frame)
-frame_slider.grid(row=17, column=0, columnspan=4, pady=2, sticky="ew")
+frame_slider.grid(row=20, column=0, columnspan=4, pady=2, sticky="ew")
 
 # Add a progress bar and a label to show the current frame
 progress_bar = ttk.Progressbar(right_frame, orient='horizontal', mode='determinate')
-progress_bar.grid(row=18, column=0, columnspan=2, pady=20, sticky="ew")
+progress_bar.grid(row=21, column=0, columnspan=2, pady=20, sticky="ew")
 progress_label = tk.Label(right_frame, text="Frame 0/0")
-progress_label.grid(row=18, column=2, columnspan=2, pady=2, sticky="ew")
+progress_label.grid(row=21, column=2, columnspan=2, pady=2, sticky="ew")
 
 # Buttons to start, stop, and exit
 btn_start_processing = tk.Button(right_frame, text="Export Video", command=start_processing)
-btn_start_processing.grid(row=19, column=0, pady=2, sticky='ew')
+btn_start_processing.grid(row=22, column=0, pady=2, sticky='ew')
 
 btn_stop_processing = tk.Button(right_frame, text="Stop", command=stop_processing)
-btn_stop_processing.grid(row=19, column=1, pady=2, sticky='ew')
+btn_stop_processing.grid(row=22, column=1, pady=2, sticky='ew')
 
 btn_exit = tk.Button(right_frame, text="Exit", command=root.destroy)
-btn_exit.grid(row=20, column=3, pady=2, sticky='ew')
+btn_exit.grid(row=23, column=3, pady=2, sticky='ew')
 
 root.mainloop()
