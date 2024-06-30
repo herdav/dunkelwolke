@@ -11,7 +11,32 @@ from tkinter import messagebox, filedialog, ttk
 from PIL import Image, ImageTk
 
 class VideoClusterFilterApp:
+  # Colors for visualization
   BOUNDARY_COLOR = (1, 1, 1)
+  PATH_COLOR = (255, 0, 0)
+  CENTER_VAL_COLOR = (0, 255, 255)
+  CENTER_ORG_COLOR = (255, 0, 255)
+  CONNECTION_COLOR = (0, 255, 0)
+  CIRCLE_VAL_COLOR = (0, 0, 0)
+  CIRCLE_ORG_COLOR = (0, 255, 255)
+  NUMBER_COLOR = (255, 255, 0)
+
+  # Colors for export (all white)
+  EXPORT_PATH_COLOR = (255, 255, 255)
+  EXPORT_CENTER_VAL_COLOR = (255, 255, 255)
+  EXPORT_CENTER_ORG_COLOR = (255, 255, 255)
+  EXPORT_CONNECTION_COLOR = (255, 255, 255)
+  EXPORT_CIRCLE_VAL_COLOR = (255, 255, 255)
+  EXPORT_CIRCLE_ORG_COLOR = (255, 255, 255)
+  EXPORT_NUMBER_COLOR = (255, 255, 255)
+
+  # Thickness settings
+  PATH_THICKNESS = 2
+  CENTER_VAL_THICKNESS = 8
+  CENTER_ORG_THICKNESS = 2
+  CONNECTION_THICKNESS = 2
+  CIRCLE_VAL_THICKNESS = 2
+  CIRCLE_ORG_THICKNESS = 2
 
   def __init__(self, root):
     self.root = root
@@ -23,6 +48,7 @@ class VideoClusterFilterApp:
     self.preview_frame = None
     self.current_frame_index = 0
     self.total_frames = 0
+    self.fps = 18
 
     # Initialize the K-means algorithm globally
     self.kmeans = None
@@ -33,12 +59,13 @@ class VideoClusterFilterApp:
     self.t_val_frames = []
     self.t_org_frames = []
     self.center_paths = []
+    self.all_paths = []  # To store all paths ever drawn
 
     # Stop processing flag
     self.stop_processing = False
 
     self.create_gui()
-  
+
   def create_gui(self):
     left_frame = tk.Frame(self.root)
     left_frame.pack(side=tk.LEFT, padx=10, pady=10)
@@ -106,6 +133,7 @@ class VideoClusterFilterApp:
     self.show_second_kmeans_var = tk.IntVar(value=1)
     self.center_val_var = tk.IntVar(value=1)
     self.show_cluster_number_var = tk.IntVar(value=1)
+    self.show_all_paths_var = tk.IntVar(value=0)  # New checkbox variable
 
     chk_export_original = tk.Checkbutton(right_frame, text="Export Original Video", variable=self.export_original_var)
     chk_export_original.grid(row=13, column=0, sticky='w', pady=2)
@@ -128,22 +156,25 @@ class VideoClusterFilterApp:
     chk_show_cluster_number = tk.Checkbutton(right_frame, text="Show Cluster Number", variable=self.show_cluster_number_var, command=self.update_preview)
     chk_show_cluster_number.grid(row=19, column=0, sticky='w', pady=2)
 
+    chk_show_all_paths = tk.Checkbutton(right_frame, text="Show All Paths", variable=self.show_all_paths_var, command=self.update_preview)
+    chk_show_all_paths.grid(row=20, column=0, sticky='w', pady=2)
+
     self.frame_slider = tk.Scale(right_frame, from_=0, to=self.total_frames - 1, orient='horizontal', command=self.update_frame)
-    self.frame_slider.grid(row=20, column=0, columnspan=4, pady=2, sticky="ew")
+    self.frame_slider.grid(row=21, column=0, columnspan=4, pady=2, sticky="ew")
 
     self.progress_bar = ttk.Progressbar(right_frame, orient='horizontal', mode='determinate')
-    self.progress_bar.grid(row=21, column=0, columnspan=2, pady=20, sticky="ew")
+    self.progress_bar.grid(row=22, column=0, columnspan=2, pady=20, sticky="ew")
     self.progress_label = tk.Label(right_frame, text="Frame 0/0")
-    self.progress_label.grid(row=21, column=2, columnspan=2, pady=2, sticky="ew")
+    self.progress_label.grid(row=22, column=2, columnspan=2, pady=2, sticky="ew")
 
     btn_start_processing = tk.Button(right_frame, text="Export Video", command=self.start_processing)
-    btn_start_processing.grid(row=22, column=0, pady=2, sticky='ew')
+    btn_start_processing.grid(row=23, column=0, pady=2, sticky='ew')
 
     btn_stop_processing = tk.Button(right_frame, text="Stop", command=self.stop_processing)
-    btn_stop_processing.grid(row=22, column=1, pady=2, sticky='ew')
+    btn_stop_processing.grid(row=23, column=1, pady=2, sticky='ew')
 
     btn_exit = tk.Button(right_frame, text="Exit", command=self.root.destroy)
-    btn_exit.grid(row=23, column=3, pady=2, sticky='ew')
+    btn_exit.grid(row=24, column=3, pady=2, sticky='ew')
 
   def get_unique_filename(self, base_path, base_name, ext):
     id = 0
@@ -224,11 +255,14 @@ class VideoClusterFilterApp:
       self.update_centers(second_centers)
 
       if self.show_second_kmeans_var.get():
-        self.draw_lines_and_markers(preview_with_boundaries, second_centers)
+        self.draw_lines_and_markers(preview_with_boundaries, second_centers, self.CONNECTION_COLOR, self.CONNECTION_THICKNESS)
 
       if self.center_val_var.get():
-        self.draw_center_val(preview_with_boundaries)
-        self.draw_center_val_paths(preview_with_boundaries)
+        self.draw_center_val(preview_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
+        self.draw_center_paths(preview_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
+
+      if self.show_all_paths_var.get():
+        self.draw_all_paths(preview_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
 
       preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
       preview_photo = ImageTk.PhotoImage(preview_image)
@@ -238,63 +272,76 @@ class VideoClusterFilterApp:
       self.num_colors_label.config(text=str(self.num_colors))
       self.selected_cluster_label.config(text=str(self.selected_cluster))
 
-  def draw_lines_and_markers(self, image, centers):
+  def draw_lines_and_markers(self, image, centers, color, thickness):
     for i, center in enumerate(centers):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(0, 255, 0), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (0, 255, 0), 2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, thickness)
 
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), color, thickness)
 
   def get_merge_threshold(self, image_shape):
     return int(self.merge_threshold_var.get() / 100 * (min(image_shape[:2]) / 2))
 
-  def draw_center_val(self, image):
+  def draw_center_val(self, image, color, thickness):
     for i, center in enumerate(self.center_val):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, thickness)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.NUMBER_COLOR, 2)
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), self.CONNECTION_COLOR, thickness)
 
-  def draw_center_val_paths(self, image):
-    path_color = (255, 255, 0)
+  def draw_center_paths(self, image, color, thickness):
     for i, center in enumerate(self.center_val):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, thickness)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.NUMBER_COLOR, 2)
       if len(self.center_paths[i]) > 1:
         for j in range(1, len(self.center_paths[i])):
-          cv2.line(image, (int(self.center_paths[i][j-1][1]), int(self.center_paths[i][j-1][0])), (int(self.center_paths[i][j][1]), int(self.center_paths[i][j][0])), path_color, 2)
+          cv2.line(image, (int(self.center_paths[i][j-1][1]), int(self.center_paths[i][j-1][0])), (int(self.center_paths[i][j][1]), int(self.center_paths[i][j][0])), color, thickness)
 
-  def draw_center_markers(self, image):
+  def draw_all_paths(self, image, color, thickness):
+    for path in self.all_paths:
+      if len(path) > 1:
+        for j in range(1, len(path)):
+          cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
+
+  def draw_center_markers(self, image, color, thickness):
     for center in self.center_val:
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
 
-  def draw_connections_only(self, image):
+  def draw_connections_only(self, image, color, thickness):
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), color, thickness)
 
-  def draw_center_numbers(self, image):
+  def draw_center_numbers(self, image, color):
     for i, center in enumerate(self.center_val):
-      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
-  def draw_center_circles(self, image):
+  def draw_center_circles(self, image, color_val, color_org, thickness_val, thickness_org):
     for center in self.center_val:
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), color_val, thickness_val)
+    for center in self.center_org:
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), color_org, thickness_org)
+
+  def draw_center_paths(self, image, color, thickness):
+    for i, path in enumerate(self.center_paths):
+      if len(path) > 1:
+        for j in range(1, len(path)):
+          cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
 
   def decrease_colors(self):
     self.num_colors = max(1, self.num_colors - 1)
@@ -361,6 +408,7 @@ class VideoClusterFilterApp:
       self.center_val = new_centers.tolist()[:max_centers]
       self.t_val_frames = [t_val] * len(self.center_val)
       self.center_paths = [[center] for center in self.center_val]
+      self.all_paths.extend(self.center_paths)  # Add initial paths to all_paths
       return
 
     for new_center in new_centers:
@@ -375,6 +423,7 @@ class VideoClusterFilterApp:
       if not merged:
         self.center_org.append(new_center.tolist())
         self.t_org_frames.append(t_exist)
+        self.all_paths.append([new_center])  # Add new paths to all_paths
 
     self.merge_existing_centers(merge_threshold)
     self.remove_expired_centers(merge_threshold, t_val)
@@ -464,20 +513,24 @@ class VideoClusterFilterApp:
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     if export_original:
       output_path = self.get_unique_filename(output_dir, 'output', '.avi')
-      out = cv2.VideoWriter(output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      out = cv2.VideoWriter(output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
     if export_separate:
       outline_output_path = self.get_unique_filename(output_dir, 'outline', '.avi')
-      outline_out = cv2.VideoWriter(outline_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      outline_out = cv2.VideoWriter(outline_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       filled_output_path = self.get_unique_filename(output_dir, 'filled', '.avi')
-      filled_out = cv2.VideoWriter(filled_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      filled_out = cv2.VideoWriter(filled_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       center_output_path = self.get_unique_filename(output_dir, 'center', '.avi')
-      center_out = cv2.VideoWriter(center_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      center_out = cv2.VideoWriter(center_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       connections_output_path = self.get_unique_filename(output_dir, 'connections', '.avi')
-      connections_out = cv2.VideoWriter(connections_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      connections_out = cv2.VideoWriter(connections_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_output_path = self.get_unique_filename(output_dir, 'nr', '.avi')
-      nr_out = cv2.VideoWriter(nr_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      nr_out = cv2.VideoWriter(nr_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       circle_output_path = self.get_unique_filename(output_dir, 'circle', '.avi')
-      circle_out = cv2.VideoWriter(circle_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      circle_out = cv2.VideoWriter(circle_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      path_output_path = self.get_unique_filename(output_dir, 'path', '.avi')
+      path_out = cv2.VideoWriter(path_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      all_paths_output_path = self.get_unique_filename(output_dir, 'all_paths', '.avi')
+      all_paths_out = cv2.VideoWriter(all_paths_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
 
     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -509,9 +562,9 @@ class VideoClusterFilterApp:
         second_centers = self.merge_close_centers(second_centers, self.merge_threshold_var.get(), frame.shape[:2])
         self.update_centers(second_centers)
         if self.show_second_kmeans_var.get():
-          self.draw_lines_and_markers(frame_with_boundaries, second_centers)
-        self.draw_center_val(frame_with_boundaries)
-        self.draw_center_val_paths(frame_with_boundaries)
+          self.draw_lines_and_markers(frame_with_boundaries, second_centers, self.CONNECTION_COLOR, self.CONNECTION_THICKNESS)
+        self.draw_center_val(frame_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
+        self.draw_center_paths(frame_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
 
       if export_original:
         out.write(frame_with_boundaries)
@@ -520,20 +573,29 @@ class VideoClusterFilterApp:
         filled_out.write(filled_only_img)
 
         center_img = np.zeros_like(frame)
-        self.draw_center_markers(center_img)
+        self.draw_center_markers(center_img, self.EXPORT_CENTER_VAL_COLOR, self.EXPORT_CENTER_VAL_THICKNESS)
+        self.draw_center_markers(center_img, self.EXPORT_CENTER_ORG_COLOR, self.EXPORT_CENTER_ORG_THICKNESS)
         center_out.write(center_img)
 
         connections_img = np.zeros_like(frame)
-        self.draw_connections_only(connections_img)
+        self.draw_connections_only(connections_img, self.EXPORT_CONNECTION_COLOR, self.EXPORT_CONNECTION_THICKNESS)
         connections_out.write(connections_img)
 
         nr_img = np.zeros_like(frame)
-        self.draw_center_numbers(nr_img)
+        self.draw_center_numbers(nr_img, self.EXPORT_NUMBER_COLOR)
         nr_out.write(nr_img)
 
         circle_img = np.zeros_like(frame)
-        self.draw_center_circles(circle_img)
+        self.draw_center_circles(circle_img, self.EXPORT_CIRCLE_VAL_COLOR, self.EXPORT_CIRCLE_ORG_COLOR, self.EXPORT_CIRCLE_VAL_THICKNESS, self.EXPORT_CIRCLE_ORG_THICKNESS)
         circle_out.write(circle_img)
+
+        path_img = np.zeros_like(frame)
+        self.draw_center_paths(path_img, self.EXPORT_PATH_COLOR, self.EXPORT_PATH_THICKNESS)
+        path_out.write(path_img)
+
+        all_paths_img = np.zeros_like(frame)
+        self.draw_all_paths(all_paths_img, self.EXPORT_PATH_COLOR, self.EXPORT_PATH_THICKNESS)
+        all_paths_out.write(all_paths_img)
 
       self.progress_bar['value'] = frame_num + 1
       self.progress_label.config(text=f"Exporting frame {frame_num + 1}/{total_frames}")
@@ -549,6 +611,8 @@ class VideoClusterFilterApp:
       connections_out.release()
       nr_out.release()
       circle_out.release()
+      path_out.release()
+      all_paths_out.release()
     cv2.destroyAllWindows()
 
     if self.stop_processing:
@@ -560,6 +624,7 @@ class VideoClusterFilterApp:
     video_path = filedialog.askopenfilename(filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")])
     if video_path:
       self.cap = cv2.VideoCapture(video_path)
+      self.fps = self.cap.get(cv2.CAP_PROP_FPS)
       ret, self.preview_frame = self.cap.read()
       if not ret:
         messagebox.showerror("Error", "Failed to read video")
@@ -586,6 +651,7 @@ class VideoClusterFilterApp:
     self.connection_count_var.set(1)
     self.show_cluster_number_var.set(1)
     self.show_second_kmeans_var.set(1)
+    self.show_all_paths_var.set(0)
     self.update_preview()
 
   def update_frame(self, index):
