@@ -1,8 +1,9 @@
+#kMeansVideo/main
 # Created 2024-06-29 by David Herren
 
 import numpy as np
 import cv2
-from sklearn.cluster import MiniBatchKMeans, KMeans
+from sklearn.cluster import MiniBatchKMeans
 from skimage.segmentation import mark_boundaries
 import os
 import tkinter as tk
@@ -10,19 +11,18 @@ from tkinter import messagebox, filedialog, ttk
 from PIL import Image, ImageTk
 
 class VideoClusterFilterApp:
+  BOUNDARY_COLOR = (1, 1, 1)
+
   def __init__(self, root):
     self.root = root
     self.root.title("k-Means Video Cluster Filter")
-    
+
     # Initial parameters for k-means
     self.num_colors = 4
     self.selected_cluster = 0
-    self.boundary_color = (0, 1, 0)
     self.preview_frame = None
     self.current_frame_index = 0
     self.total_frames = 0
-    self.previous_centers = None
-    self.center_ids = []
 
     # Initialize the K-means algorithm globally
     self.kmeans = None
@@ -36,7 +36,7 @@ class VideoClusterFilterApp:
 
     # Stop processing flag
     self.stop_processing = False
-    
+
     self.create_gui()
   
   def create_gui(self):
@@ -77,27 +77,27 @@ class VideoClusterFilterApp:
 
     tk.Label(right_frame, text="Radius (%)").grid(row=7, column=0, pady=2, sticky='w')
     self.radius_var = tk.IntVar(value=80)
-    tk.Scale(right_frame, from_=0, to=100, orient='horizontal', variable=self.radius_var, command=self.update_radius).grid(row=7, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=0, to=100, orient='horizontal', variable=self.radius_var, command=self.update_preview).grid(row=7, column=1, pady=2, sticky='w')
 
     tk.Label(right_frame, text="Second K-means Clusters").grid(row=8, column=0, pady=2, sticky='w')
     self.second_kmeans_clusters_var = tk.IntVar(value=4)
-    tk.Scale(right_frame, from_=1, to=20, orient='horizontal', variable=self.second_kmeans_clusters_var, command=lambda x: self.update_preview()).grid(row=8, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=1, to=20, orient='horizontal', variable=self.second_kmeans_clusters_var, command=self.update_preview).grid(row=8, column=1, pady=2, sticky='w')
 
     tk.Label(right_frame, text="Merge Threshold (%)").grid(row=9, column=0, pady=2, sticky='w')
     self.merge_threshold_var = tk.IntVar(value=20)
-    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.merge_threshold_var, command=lambda x: self.update_preview()).grid(row=9, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.merge_threshold_var, command=self.update_preview).grid(row=9, column=1, pady=2, sticky='w')
 
     tk.Label(right_frame, text="t_val (frames)").grid(row=10, column=0, pady=2, sticky='w')
     self.t_val_var = tk.IntVar(value=10)
-    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.t_val_var, command=lambda x: self.update_preview()).grid(row=10, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.t_val_var, command=self.update_preview).grid(row=10, column=1, pady=2, sticky='w')
 
     tk.Label(right_frame, text="t_exist (frames)").grid(row=11, column=0, pady=2, sticky='w')
     self.t_exist_var = tk.IntVar(value=20)
-    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.t_exist_var, command=lambda x: self.update_preview()).grid(row=11, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=1, to=100, orient='horizontal', variable=self.t_exist_var, command=self.update_preview).grid(row=11, column=1, pady=2, sticky='w')
 
     tk.Label(right_frame, text="Number of Connections").grid(row=12, column=0, pady=2, sticky='w')
     self.connection_count_var = tk.IntVar(value=0)
-    tk.Scale(right_frame, from_=0, to=4, orient='horizontal', variable=self.connection_count_var, command=lambda x: self.update_preview()).grid(row=12, column=1, pady=2, sticky='w')
+    tk.Scale(right_frame, from_=0, to=4, orient='horizontal', variable=self.connection_count_var, command=self.update_preview).grid(row=12, column=1, pady=2, sticky='w')
 
     self.export_original_var = tk.IntVar(value=1)
     self.export_separate_var = tk.IntVar(value=0)
@@ -113,7 +113,7 @@ class VideoClusterFilterApp:
     chk_export_separate = tk.Checkbutton(right_frame, text="Export All Layers Separately", variable=self.export_separate_var)
     chk_export_separate.grid(row=14, column=0, sticky='w', pady=2)
 
-    chk_grayscale = tk.Checkbutton(right_frame, text="Display Grayscale Video", variable=self.grayscale_var, command=self.toggle_grayscale)
+    chk_grayscale = tk.Checkbutton(right_frame, text="Display Grayscale Video", variable=self.grayscale_var, command=self.update_preview)
     chk_grayscale.grid(row=15, column=0, sticky='w', pady=2)
 
     chk_fill_cluster = tk.Checkbutton(right_frame, text="Fill Selected Cluster", variable=self.fill_cluster_var, command=self.update_preview)
@@ -175,6 +175,7 @@ class VideoClusterFilterApp:
     else:
       kmeans.n_clusters = num_colors
       kmeans.partial_fit(pixels)
+
     labels = kmeans.predict(pixels)
     centroids = kmeans.cluster_centers_
 
@@ -186,7 +187,7 @@ class VideoClusterFilterApp:
       new_fill_area = mask.copy()
       new_fill_area[mask_labels.reshape(image_np.shape[:2])] = 0
       fill_img = np.zeros_like(frame)
-      fill_img[np.where(new_fill_area == (255))] = [int(c * 255) for c in boundary_color]
+      fill_img[np.where(new_fill_area == 255)] = [int(c * 255) for c in boundary_color]
       inverted_fill_img = np.zeros_like(frame)
       inverted_fill_img[np.where(mask_labels.reshape(image_np.shape[:2]))] = [int(c * 255) for c in boundary_color]
       inverted_fill_img = cv2.bitwise_and(inverted_fill_img, inverted_fill_img, mask=mask)
@@ -203,30 +204,56 @@ class VideoClusterFilterApp:
 
     return frame_with_boundaries, boundary_img, kmeans, inverted_fill_img
 
-  def update_preview(self):
+  def apply_fill_cluster(self, mask, frame, mask_labels, fill_cluster):
+    if fill_cluster:
+      new_fill_area = mask.copy()
+      new_fill_area[mask_labels.reshape(frame.shape[:2])] = 0
+      fill_img = np.zeros_like(frame)
+      fill_img[np.where(new_fill_area == 255)] = [int(c * 255) for c in self.BOUNDARY_COLOR]
+      inverted_fill_img = np.zeros_like(frame)
+      inverted_fill_img[np.where(mask_labels.reshape(frame.shape[:2]))] = [int(c * 255) for c in self.BOUNDARY_COLOR]
+      inverted_fill_img = cv2.bitwise_and(inverted_fill_img, inverted_fill_img, mask=mask)
+      frame = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
+      frame = cv2.add(frame, fill_img)
+    else:
+      fill_img = None
+      inverted_fill_img = None
+    return fill_img, inverted_fill_img
+
+  def reshape_pixels(self, image_np):
+    if image_np.shape[2] == 4:
+      return image_np.reshape(-1, 4)  # RGBA image
+    else:
+      return image_np.reshape(-1, 3)  # RGB image
+
+  def get_radius(self, width):
+    return int(self.radius_var.get() / 100 * (width // 2))
+
+  def update_preview(self, val=None):
     if self.preview_frame is not None:
       radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
       preview_with_boundaries, _, self.kmeans, filled_only_img = self.process_frame(
-        self.preview_frame, self.num_colors, self.selected_cluster, self.boundary_color, radius,
+        self.preview_frame, self.num_colors, self.selected_cluster, self.BOUNDARY_COLOR, radius,
         self.kmeans, self.grayscale_var.get(), self.fill_cluster_var.get()
       )
 
       if filled_only_img is None:
         _, _, _, filled_only_img = self.process_frame(
-          self.preview_frame, self.num_colors, self.selected_cluster, self.boundary_color, radius,
+          self.preview_frame, self.num_colors, self.selected_cluster, self.BOUNDARY_COLOR, radius,
           self.kmeans, self.grayscale_var.get(), True
         )
+
       second_kmeans_clusters = self.second_kmeans_clusters_var.get()
       second_centers = self.perform_second_kmeans(filled_only_img, second_kmeans_clusters)
       second_centers = self.merge_close_centers(second_centers, self.merge_threshold_var.get(), self.preview_frame.shape[:2])
-      self.update_centers(second_centers, self.merge_threshold_var.get(), self.t_val_var.get(), self.t_exist_var.get(), second_kmeans_clusters)
+      self.update_centers(second_centers)
 
       if self.show_second_kmeans_var.get():
-        self.draw_lines_and_markers(preview_with_boundaries, second_centers, self.connection_count_var.get(), self.merge_threshold_var.get())
+        self.draw_lines_and_markers(preview_with_boundaries, second_centers)
 
       if self.center_val_var.get():
-        self.draw_center_val(preview_with_boundaries, self.center_val, self.merge_threshold_var.get())
-        self.draw_center_val_paths(preview_with_boundaries, self.center_val, self.center_paths, self.merge_threshold_var.get())
+        self.draw_center_val(preview_with_boundaries)
+        self.draw_center_val_paths(preview_with_boundaries)
 
       preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
       preview_photo = ImageTk.PhotoImage(preview_image)
@@ -236,39 +263,63 @@ class VideoClusterFilterApp:
       self.num_colors_label.config(text=str(self.num_colors))
       self.selected_cluster_label.config(text=str(self.selected_cluster))
 
-  def draw_lines_and_markers(self, image, centers, connection_count, merge_threshold):
+  def draw_lines_and_markers(self, image, centers):
     for i, center in enumerate(centers):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(0, 255, 0), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (0, 255, 0), 2)
-    for i, center in enumerate(centers):
-      distances = np.linalg.norm(centers - center, axis=1)
-      closest_indices = distances.argsort()[1:connection_count+1]
-      for idx in closest_indices:
-        closest_center = centers[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (0, 255, 0), 2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (0, 255, 0), 2)
 
-  def draw_center_val(self, image, centers, merge_threshold):
-    for i, center in enumerate(centers):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (255, 0, 255), 2)
-      if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-      distances = np.linalg.norm(np.array(centers) - center, axis=1)
+    for i, center in enumerate(self.center_val):
+      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
-        closest_center = centers[idx]
+        closest_center = self.center_val[idx]
         cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 255), 2)
 
-  def draw_center_val_paths(self, image, centers, paths, merge_threshold):
-    path_color = (255, 255, 0)
-    for i, center in enumerate(centers):
+  def get_merge_threshold(self, image_shape):
+    return int(self.merge_threshold_var.get() / 100 * (min(image_shape[:2]) / 2))
+
+  def draw_center_val(self, image):
+    for i, center in enumerate(self.center_val):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), int(merge_threshold / 100 * (min(image.shape[:2]) / 2)), (255, 0, 255), 2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 0, 255), 2)
       if self.show_cluster_number_var.get():
         cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-      if len(paths[i]) > 1:
-        for j in range(1, len(paths[i])):
-          cv2.line(image, (int(paths[i][j-1][1]), int(paths[i][j-1][0])), (int(paths[i][j][1]), int(paths[i][j][0])), path_color, 2)
+      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+      closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
+      for idx in closest_indices:
+        closest_center = self.center_val[idx]
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 255), 2)
+
+  def draw_center_val_paths(self, image):
+    path_color = (255, 255, 0)
+    for i, center in enumerate(self.center_val):
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 0, 255), 2)
+      if self.show_cluster_number_var.get():
+        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+      if len(self.center_paths[i]) > 1:
+        for j in range(1, len(self.center_paths[i])):
+          cv2.line(image, (int(self.center_paths[i][j-1][1]), int(self.center_paths[i][j-1][0])), (int(self.center_paths[i][j][1]), int(self.center_paths[i][j][0])), path_color, 2)
+
+  def draw_center_markers(self, image):
+    for center in self.center_val:
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+
+  def draw_connections_only(self, image):
+    for i, center in enumerate(self.center_val):
+      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+      closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
+      for idx in closest_indices:
+        closest_center = self.center_val[idx]
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
+
+  def draw_center_numbers(self, image):
+    for i, center in enumerate(self.center_val):
+      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+  def draw_center_circles(self, image):
+    for center in self.center_val:
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
 
   def decrease_colors(self):
     self.num_colors = max(1, self.num_colors - 1)
@@ -294,9 +345,6 @@ class VideoClusterFilterApp:
   def toggle_grayscale(self):
     self.update_preview()
 
-  def update_radius(self, val):
-    self.update_preview()
-
   def perform_second_kmeans(self, image, n_clusters):
     height, width, _ = image.shape
     Y, X = np.ogrid[:height, :width]
@@ -312,7 +360,7 @@ class VideoClusterFilterApp:
 
     data = np.hstack((positions, data))
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(data)
+    kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=0).fit(data)
     centers = kmeans.cluster_centers_
     return centers
 
@@ -328,7 +376,12 @@ class VideoClusterFilterApp:
       merged_centers.append(merged_center)
     return np.array(merged_centers)
 
-  def update_centers(self, new_centers, merge_threshold, t_val, t_exist, max_centers):
+  def update_centers(self, new_centers):
+    merge_threshold = self.merge_threshold_var.get()
+    t_val = self.t_val_var.get()
+    t_exist = self.t_exist_var.get()
+    max_centers = self.second_kmeans_clusters_var.get()
+
     if len(self.center_val) == 0:
       self.center_val = new_centers.tolist()[:max_centers]
       self.t_val_frames = [t_val] * len(self.center_val)
@@ -348,6 +401,11 @@ class VideoClusterFilterApp:
         self.center_org.append(new_center.tolist())
         self.t_org_frames.append(t_exist)
 
+    self.merge_existing_centers(merge_threshold)
+    self.remove_expired_centers(merge_threshold, t_val)
+    self.trim_extra_centers(max_centers)
+
+  def merge_existing_centers(self, merge_threshold):
     i = 0
     while i < len(self.center_val):
       j = i + 1
@@ -372,6 +430,7 @@ class VideoClusterFilterApp:
     self.t_val_frames = [self.t_val_frames[i] for i in indices_to_keep]
     self.center_paths = [self.center_paths[i] for i in indices_to_keep]
 
+  def remove_expired_centers(self, merge_threshold, t_val):
     new_stable_centers = []
     new_t_val_frames = []
     new_paths = []
@@ -409,6 +468,7 @@ class VideoClusterFilterApp:
           j += 1
       i += 1
 
+  def trim_extra_centers(self, max_centers):
     if len(self.center_val) > max_centers:
       self.center_val = self.center_val[:max_centers]
       self.t_val_frames = self.t_val_frames[:max_centers]
@@ -435,8 +495,14 @@ class VideoClusterFilterApp:
       outline_out = cv2.VideoWriter(outline_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
       filled_output_path = self.get_unique_filename(output_dir, 'filled', '.avi')
       filled_out = cv2.VideoWriter(filled_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
-      second_kmeans_output_path = self.get_unique_filename(output_dir, 'second_kmeans', '.avi')
-      second_kmeans_out = cv2.VideoWriter(second_kmeans_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      center_output_path = self.get_unique_filename(output_dir, 'center', '.avi')
+      center_out = cv2.VideoWriter(center_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      connections_output_path = self.get_unique_filename(output_dir, 'connections', '.avi')
+      connections_out = cv2.VideoWriter(connections_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      nr_output_path = self.get_unique_filename(output_dir, 'nr', '.avi')
+      nr_out = cv2.VideoWriter(nr_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
+      circle_output_path = self.get_unique_filename(output_dir, 'circle', '.avi')
+      circle_out = cv2.VideoWriter(circle_output_path, fourcc, 18.0, (int(self.cap.get(3)), int(self.cap.get(4))))
 
     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -453,32 +519,46 @@ class VideoClusterFilterApp:
 
       radius = int(self.radius_var.get() / 100 * (frame.shape[1] // 2))
       frame_with_boundaries, boundary_img, self.kmeans, filled_only_img = self.process_frame(
-        frame, self.num_colors, self.selected_cluster, self.boundary_color, radius,
+        frame, self.num_colors, self.selected_cluster, self.BOUNDARY_COLOR, radius,
         self.kmeans, self.grayscale_var.get(), self.fill_cluster_var.get()
       )
 
       if filled_only_img is None:
         _, _, _, filled_only_img = self.process_frame(
-          frame, self.num_colors, self.selected_cluster, self.boundary_color, radius,
+          frame, self.num_colors, self.selected_cluster, self.BOUNDARY_COLOR, radius,
           self.kmeans, self.grayscale_var.get(), True
         )
 
-      second_kmeans_clusters = self.second_kmeans_clusters_var.get()
-      second_centers = self.perform_second_kmeans(filled_only_img, second_kmeans_clusters)
+      second_centers = self.perform_second_kmeans(filled_only_img, self.second_kmeans_clusters_var.get())
       if len(second_centers) > 0:
         second_centers = self.merge_close_centers(second_centers, self.merge_threshold_var.get(), frame.shape[:2])
-        self.update_centers(second_centers, self.merge_threshold_var.get(), self.t_val_var.get(), self.t_exist_var.get(), second_kmeans_clusters)
+        self.update_centers(second_centers)
         if self.show_second_kmeans_var.get():
-          self.draw_lines_and_markers(frame_with_boundaries, second_centers, self.connection_count_var.get(), self.merge_threshold_var.get())
-        self.draw_center_val(frame_with_boundaries, self.center_val, self.merge_threshold_var.get())
-        self.draw_center_val_paths(frame_with_boundaries, self.center_val, self.center_paths, self.merge_threshold_var.get())
+          self.draw_lines_and_markers(frame_with_boundaries, second_centers)
+        self.draw_center_val(frame_with_boundaries)
+        self.draw_center_val_paths(frame_with_boundaries)
 
       if export_original:
         out.write(frame_with_boundaries)
       if export_separate:
         outline_out.write(boundary_img)
         filled_out.write(filled_only_img)
-        second_kmeans_out.write(filled_only_img)
+
+        center_img = np.zeros_like(frame)
+        self.draw_center_markers(center_img)
+        center_out.write(center_img)
+
+        connections_img = np.zeros_like(frame)
+        self.draw_connections_only(connections_img)
+        connections_out.write(connections_img)
+
+        nr_img = np.zeros_like(frame)
+        self.draw_center_numbers(nr_img)
+        nr_out.write(nr_img)
+
+        circle_img = np.zeros_like(frame)
+        self.draw_center_circles(circle_img)
+        circle_out.write(circle_img)
 
       self.progress_bar['value'] = frame_num + 1
       self.progress_label.config(text=f"Exporting frame {frame_num + 1}/{total_frames}")
@@ -490,14 +570,17 @@ class VideoClusterFilterApp:
     if export_separate:
       outline_out.release()
       filled_out.release()
-      second_kmeans_out.release()
+      center_out.release()
+      connections_out.release()
+      nr_out.release()
+      circle_out.release()
     cv2.destroyAllWindows()
 
     if self.stop_processing:
       messagebox.showinfo("Info", "Video processing stopped.")
     else:
       messagebox.showinfo("Info", "Video processing completed and saved.")
-    
+
   def select_video(self):
     video_path = filedialog.askopenfilename(filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")])
     if video_path:
@@ -507,8 +590,6 @@ class VideoClusterFilterApp:
         messagebox.showerror("Error", "Failed to read video")
         return
       self.kmeans = None
-      self.previous_centers = None
-      self.center_ids = []
       self.current_frame_index = 0
       self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
       self.frame_slider.config(to=self.total_frames - 1)
@@ -520,7 +601,6 @@ class VideoClusterFilterApp:
   def reset_parameters(self):
     self.num_colors = 4
     self.selected_cluster = 0
-    self.boundary_color = (0, 1, 0)
     self.grayscale_var.set(1)
     self.radius_var.set(80)
     self.fill_cluster_var.set(0)
