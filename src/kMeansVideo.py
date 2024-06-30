@@ -1,4 +1,4 @@
-#kMeansVideo/main
+# kMeansVideo/main
 # Created 2024-06-29 by David Herren
 
 import numpy as np
@@ -204,31 +204,6 @@ class VideoClusterFilterApp:
 
     return frame_with_boundaries, boundary_img, kmeans, inverted_fill_img
 
-  def apply_fill_cluster(self, mask, frame, mask_labels, fill_cluster):
-    if fill_cluster:
-      new_fill_area = mask.copy()
-      new_fill_area[mask_labels.reshape(frame.shape[:2])] = 0
-      fill_img = np.zeros_like(frame)
-      fill_img[np.where(new_fill_area == 255)] = [int(c * 255) for c in self.BOUNDARY_COLOR]
-      inverted_fill_img = np.zeros_like(frame)
-      inverted_fill_img[np.where(mask_labels.reshape(frame.shape[:2]))] = [int(c * 255) for c in self.BOUNDARY_COLOR]
-      inverted_fill_img = cv2.bitwise_and(inverted_fill_img, inverted_fill_img, mask=mask)
-      frame = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
-      frame = cv2.add(frame, fill_img)
-    else:
-      fill_img = None
-      inverted_fill_img = None
-    return fill_img, inverted_fill_img
-
-  def reshape_pixels(self, image_np):
-    if image_np.shape[2] == 4:
-      return image_np.reshape(-1, 4)  # RGBA image
-    else:
-      return image_np.reshape(-1, 3)  # RGB image
-
-  def get_radius(self, width):
-    return int(self.radius_var.get() / 100 * (width // 2))
-
   def update_preview(self, val=None):
     if self.preview_frame is not None:
       radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
@@ -273,37 +248,37 @@ class VideoClusterFilterApp:
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 255), 2)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
 
   def get_merge_threshold(self, image_shape):
     return int(self.merge_threshold_var.get() / 100 * (min(image_shape[:2]) / 2))
 
   def draw_center_val(self, image):
     for i, center in enumerate(self.center_val):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 0, 255), 2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 255), 2)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 255, 255), 2)
 
   def draw_center_val_paths(self, image):
     path_color = (255, 255, 0)
     for i, center in enumerate(self.center_val):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 0, 255), 2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), (255, 255, 255), 2)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
       if len(self.center_paths[i]) > 1:
         for j in range(1, len(self.center_paths[i])):
           cv2.line(image, (int(self.center_paths[i][j-1][1]), int(self.center_paths[i][j-1][0])), (int(self.center_paths[i][j][1]), int(self.center_paths[i][j][0])), path_color, 2)
 
   def draw_center_markers(self, image):
     for center in self.center_val:
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=(255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
 
   def draw_connections_only(self, image):
     for i, center in enumerate(self.center_val):
