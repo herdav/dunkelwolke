@@ -13,38 +13,49 @@ from PIL import Image, ImageTk
 class VideoClusterFilterApp:
   # Colors for visualization
   BOUNDARY_COLOR = (1, 1, 1)
-  PATH_COLOR = (0, 255, 0)
+  
+  CENTER_ORG_COLOR = (0, 0, 255)
+  CIRCLE_ORG_COLOR = (0, 0, 255)
+  NUMBER_ORG_COLOR = (0, 0, 255)
+  
   CENTER_VAL_COLOR = (0, 255, 0)
-  CENTER_ORG_COLOR = (0, 255, 0)
-  CONNECTION_COLOR = (0, 255, 0)
   CIRCLE_VAL_COLOR = (0, 255, 0)
-  CIRCLE_ORG_COLOR = (0, 0, 0)
-  NUMBER_COLOR = (0, 255, 0)
+  NUMBER_VAL_COLOR = (0, 255, 0)
+  
+  CONNEC_VAL_COLOR = (0, 255, 0)
+  PATH_VAL_COLOR = (0, 255, 0)
 
-  # Colors for export (all white)
-  EXPORT_PATH_COLOR = (255, 255, 255)
-  EXPORT_CENTER_VAL_COLOR = (255, 255, 255)
+  # Colors for export
   EXPORT_CENTER_ORG_COLOR = (255, 255, 255)
-  EXPORT_CONNECTION_COLOR = (255, 255, 255)
-  EXPORT_CIRCLE_VAL_COLOR = (255, 255, 255)
   EXPORT_CIRCLE_ORG_COLOR = (255, 255, 255)
-  EXPORT_NUMBER_COLOR = (255, 255, 255)
+  EXPORT_NUMBER_ORG_COLOR = (255, 255, 255)
+  
+  EXPORT_CENTER_VAL_COLOR = (255, 255, 255)
+  EXPORT_CIRCLE_VAL_COLOR = (255, 255, 255)
+  EXPORT_NUMBER_VAL_COLOR = (255, 255, 255)
+  
+  EXPORT_CONNEC_VAL_COLOR = (255, 255, 255)
+  EXPORT_PATH_VAL_COLOR = (255, 255, 255)
 
   # Thickness for visualization
-  PATH_THICKNESS = 1
-  CENTER_VAL_THICKNESS = 1
   CENTER_ORG_THICKNESS = 1
-  CONNECTION_THICKNESS = 1
-  CIRCLE_VAL_THICKNESS = 1
   CIRCLE_ORG_THICKNESS = 1
-
+  
+  CENTER_VAL_THICKNESS = 1
+  CIRCLE_VAL_THICKNESS = 1
+  
+  CONNEC_VAL_THICKNESS = 1
+  PATH_VAL_THICKNESS = 1
+  
   # Thickness for export
-  EXPORT_PATH_THICKNESS = 1
-  EXPORT_CENTER_VAL_THICKNESS = 1
   EXPORT_CENTER_ORG_THICKNESS = 1
-  EXPORT_CONNECTION_THICKNESS = 1
-  EXPORT_CIRCLE_VAL_THICKNESS = 1
   EXPORT_CIRCLE_ORG_THICKNESS = 1
+
+  EXPORT_CENTER_VAL_THICKNESS = 1
+  EXPORT_CIRCLE_VAL_THICKNESS = 1
+  
+  EXPORT_CONNEC_VAL_THICKNESS = 1
+  EXPORT_PATH_VAL_THICKNESS = 1
 
   # Font size for numbers
   FONT_SIZE = 1.2
@@ -266,14 +277,14 @@ class VideoClusterFilterApp:
       self.update_centers(second_centers)
 
       if self.show_second_kmeans_var.get():
-        self.draw_lines_and_markers(preview_with_boundaries, second_centers, self.CONNECTION_COLOR, self.CONNECTION_THICKNESS)
+        self.draw_lines_and_markers(preview_with_boundaries, second_centers, self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
 
       if self.center_val_var.get():
         self.draw_center_val(preview_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
-        self.draw_center_paths(preview_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
+        self.draw_center_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
       if self.show_all_paths_var.get():
-        self.draw_all_paths(preview_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
+        self.draw_all_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
       preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
       preview_photo = ImageTk.PhotoImage(preview_image)
@@ -303,26 +314,26 @@ class VideoClusterFilterApp:
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_COLOR, 2)
+        cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_VAL_COLOR, 2)
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
         closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), self.CONNECTION_COLOR, self.CONNECTION_THICKNESS)
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
 
   def draw_center_org(self, image, color, thickness):
     for i, center in enumerate(self.center_org):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_ORG_COLOR, self.CIRCLE_ORG_THICKNESS)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_COLOR, 2)
+        cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_ORG_COLOR, 2)
 
   def draw_center_paths(self, image, color, thickness):
     for i, center in enumerate(self.center_val):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_COLOR, 2)
+        cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_VAL_COLOR, 2)
       if len(self.center_paths[i]) > 1:
         for j in range(1, len(self.center_paths[i])):
           cv2.line(image, (int(self.center_paths[i][j-1][1]), int(self.center_paths[i][j-1][0])), (int(self.center_paths[i][j][1]), int(self.center_paths[i][j][0])), color, thickness)
@@ -347,7 +358,7 @@ class VideoClusterFilterApp:
 
   def draw_center_numbers(self, image, color, font_size, thickness):
     for i, center in enumerate(self.center_val):
-      cv2.putText(image, str(i), (int(center[1]) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
+      cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
 
   def draw_center_circles(self, image, color, thickness):
     for center in self.center_val:
@@ -401,7 +412,7 @@ class VideoClusterFilterApp:
     return centers
 
   def merge_close_centers(self, centers, threshold_percent, image_shape):
-    threshold = (threshold_percent / 100) * (min(image_shape) / 2)
+    threshold = (threshold_percent / 100) * (min(image_shape[:2]) / 2)
     merged_centers = []
     while len(centers) > 0:
       center = centers[0]
@@ -580,10 +591,10 @@ class VideoClusterFilterApp:
         second_centers = self.merge_close_centers(second_centers, self.merge_threshold_var.get(), frame.shape[:2])
         self.update_centers(second_centers)
         if self.show_second_kmeans_var.get():
-          self.draw_lines_and_markers(frame_with_boundaries, second_centers, self.CONNECTION_COLOR, self.CONNECTION_THICKNESS)
+          self.draw_lines_and_markers(frame_with_boundaries, second_centers, self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
         self.draw_center_val(frame_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
         self.draw_center_org(frame_with_boundaries, self.CENTER_ORG_COLOR, self.CENTER_ORG_THICKNESS)
-        self.draw_center_paths(frame_with_boundaries, self.PATH_COLOR, self.PATH_THICKNESS)
+        self.draw_center_paths(frame_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
       if export_original:
         out.write(frame_with_boundaries)
@@ -600,11 +611,11 @@ class VideoClusterFilterApp:
         center_org_out.write(center_org_img)
 
         connections_img = np.zeros_like(frame)
-        self.draw_connections_only(connections_img, self.EXPORT_CONNECTION_COLOR, self.EXPORT_CONNECTION_THICKNESS)
+        self.draw_connections_only(connections_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
         connections_out.write(connections_img)
 
         nr_img = np.zeros_like(frame)
-        self.draw_center_numbers(nr_img, self.EXPORT_NUMBER_COLOR, self.FONT_SIZE, 2)
+        self.draw_center_numbers(nr_img, self.EXPORT_NUMBER_VAL_COLOR, self.FONT_SIZE, 2)
         nr_out.write(nr_img)
 
         circle_val_img = np.zeros_like(frame)
@@ -616,11 +627,11 @@ class VideoClusterFilterApp:
         circle_org_out.write(circle_org_img)
 
         path_img = np.zeros_like(frame)
-        self.draw_center_paths(path_img, self.EXPORT_PATH_COLOR, self.EXPORT_PATH_THICKNESS)
+        self.draw_center_paths(path_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
         path_out.write(path_img)
 
         all_paths_img = np.zeros_like(frame)
-        self.draw_all_paths(all_paths_img, self.EXPORT_PATH_COLOR, self.EXPORT_PATH_THICKNESS)
+        self.draw_all_paths(all_paths_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
         all_paths_out.write(all_paths_img)
 
       self.progress_bar['value'] = frame_num + 1
@@ -647,7 +658,7 @@ class VideoClusterFilterApp:
       messagebox.showinfo("Info", "Video processing stopped.")
     else:
       messagebox.showinfo("Info", "Video processing completed and saved.")
-      
+
   def select_video(self):
     video_path = filedialog.askopenfilename(filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")])
     if video_path:
