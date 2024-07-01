@@ -4,9 +4,10 @@
 import os
 import requests
 from datetime import datetime, timedelta
-from tkinter import Tk, filedialog, Toplevel, Label, Button, OptionMenu, StringVar
+from tkinter import Tk, filedialog, Toplevel, Label, Button, OptionMenu, StringVar, IntVar, Checkbutton
 from tkcalendar import Calendar
 from tkinter.ttk import Progressbar
+from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 def download_file(url, save_path):
   try:
@@ -27,6 +28,7 @@ def select_dates_and_type():
     end_date = cal_end.selection_get()
     date_range.set(f"{start_date.strftime('%Y-%m-%d')},{end_date.strftime('%Y-%m-%d')}")
     selected_file_type.set(file_type.get())
+    concatenate_videos.set(concat_videos.get())
     selection_window.destroy()
     show_progress_window()
 
@@ -48,7 +50,40 @@ def select_dates_and_type():
   file_type_menu = OptionMenu(selection_window, file_type, *file_types)
   file_type_menu.grid(row=2, column=1, padx=10, pady=5)
   
-  Button(selection_window, text="Confirm", command=on_select).grid(row=3, columnspan=2, pady=20)
+  concat_videos = IntVar()
+  Checkbutton(selection_window, text="Concatenate videos", variable=concat_videos).grid(row=3, columnspan=2, pady=5)
+  
+  Button(selection_window, text="Confirm", command=on_select).grid(row=4, columnspan=2, pady=20)
+
+def concatenate_downloaded_videos_by_month(video_files, file_type, progress_window, progress_bar, progress_label):
+  # Group videos by year and month
+  video_groups = {}
+  for file in video_files:
+    year_month = os.path.basename(file)[:6]
+    if year_month not in video_groups:
+      video_groups[year_month] = []
+    video_groups[year_month].append(file)
+
+  total_groups = len(video_groups)
+  current_group = 0
+
+  for year_month, files in video_groups.items():
+    clips = []
+    total_clips = len(files)
+    for idx, file in enumerate(files):
+      clips.append(VideoFileClip(file))
+      progress_label.config(text=f"Loading video {idx + 1}/{total_clips} for concatenation of {year_month}...")
+      progress_bar['value'] = (idx + 1) / total_clips * 100
+      progress_window.update_idletasks()
+
+    final_clip = concatenate_videoclips(clips, method="compose")
+    output_video_path = os.path.join(os.path.dirname(files[0]), f"merge_{year_month}_1024_{file_type}.mp4")
+    progress_label.config(text=f"Saving concatenated video for {year_month}...")
+    final_clip.write_videofile(output_video_path)
+    progress_label.config(text=f"Videos for {year_month} concatenated successfully!")
+    current_group += 1
+    progress_bar['value'] = current_group / total_groups * 100
+    progress_window.update_idletasks()
 
 def show_progress_window():
   progress_window = Toplevel(root)
@@ -83,13 +118,17 @@ def show_progress_window():
     if not os.path.exists(os.path.dirname(save_path)):
       os.makedirs(os.path.dirname(save_path))
 
-    progress_label.config(text=f"Downloading: {file_name}")
-    progress_window.update_idletasks()
-    
-    if download_file(url, save_path):
-      downloaded_files.append(file_name)
+    if os.path.exists(save_path):
+      print(f"File {file_name} already exists, skipping download.")
+      downloaded_files.append(save_path)
     else:
-      failed_files.append(file_name)
+      progress_label.config(text=f"Downloading: {file_name}")
+      progress_window.update_idletasks()
+      
+      if download_file(url, save_path):
+        downloaded_files.append(save_path)
+      else:
+        failed_files.append(file_name)
     
     current_date += timedelta(days=1)
     day_count += 1
@@ -103,6 +142,11 @@ def show_progress_window():
   
   progress_window.update_idletasks()
   
+  # Concatenate videos if the checkbox was selected
+  if concatenate_videos.get() == 1 and downloaded_files:
+    progress_bar['value'] = 0  # Reset progress bar for concatenation
+    concatenate_downloaded_videos_by_month(downloaded_files, selected_file_type.get(), progress_window, progress_bar, progress_label)
+
   # Close the progress window after download completion
   def close_progress_window():
     progress_window.destroy()
@@ -149,6 +193,7 @@ if not save_directory:
 # Select date range and file type
 date_range = StringVar()
 selected_file_type = StringVar()
+concatenate_videos = IntVar()
 select_dates_and_type()
 root.wait_window()
 
