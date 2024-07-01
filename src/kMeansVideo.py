@@ -373,9 +373,11 @@ class VideoClusterFilterApp:
         for j in range(1, len(path)):
           cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
 
-  def draw_center_markers(self, image, color, thickness):
-    for center in self.center_val:
+  def draw_center_markers(self, image, centers, color, thickness):
+    for center in centers:
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+      for center in self.center_val:
+        cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
 
   def draw_connections_only(self, image, color, thickness):
     for i, center in enumerate(self.center_val):
@@ -435,6 +437,9 @@ class VideoClusterFilterApp:
       return []
 
     data = np.hstack((positions, data))
+
+    # Ensure n_clusters is not greater than the number of samples
+    n_clusters = min(n_clusters, len(data))
 
     kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=0).fit(data)
     centers = kmeans.cluster_centers_
@@ -636,11 +641,11 @@ class VideoClusterFilterApp:
         filled_out.write(filled_only_img)
 
         center_val_img = np.zeros_like(frame)
-        self.draw_center_markers(center_val_img, self.EXPORT_CENTER_VAL_COLOR, self.EXPORT_CENTER_VAL_THICKNESS)
+        self.draw_center_markers(center_val_img, self.center_val, self.EXPORT_CENTER_VAL_COLOR, self.EXPORT_CENTER_VAL_THICKNESS)
         center_val_out.write(center_val_img)
 
         center_org_img = np.zeros_like(frame)
-        self.draw_center_org_circles(center_org_img, self.EXPORT_CENTER_ORG_COLOR, self.EXPORT_CENTER_ORG_THICKNESS)
+        self.draw_center_markers(center_org_img, self.center_org, self.EXPORT_CENTER_ORG_COLOR, self.EXPORT_CENTER_ORG_THICKNESS)
         center_org_out.write(center_org_img)
 
         connections_img = np.zeros_like(frame)
@@ -701,7 +706,7 @@ class VideoClusterFilterApp:
       messagebox.showinfo("Info", "Video processing stopped.")
     else:
       messagebox.showinfo("Info", "Video processing completed and saved.")
-
+      
   def draw_connection_lengths(self, image, color, font_size, thickness):
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
