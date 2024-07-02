@@ -336,7 +336,6 @@ class VideoClusterFilterApp:
           mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
           length = np.linalg.norm(np.array(center) - np.array(closest_center))
           hav_length = self.haversine_distance(center[:2], closest_center[:2])
-          #cv2.putText(image, f"{int(hav_length)} ({int(length)})", (mid_point[0], mid_point[1]),
           cv2.putText(image, f"{hav_length/radius:.3f} ({length/radius:.3f})", (mid_point[0], mid_point[1]),  
                       cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
 
@@ -392,23 +391,24 @@ class VideoClusterFilterApp:
   def get_merge_threshold(self, image_shape):
     return int(self.merge_threshold_var.get() / 100 * (min(image_shape[:2]) / 2))
 
-  def draw_center_val(self, image, color, thickness):
+  def draw_center_val(self, image, color, thickness, draw_text=False, draw_connections=False, draw_circles=False):
     radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(self.center_val):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
-      if self.show_cluster_number_var.get():
+      if draw_circles:
+        cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+      if draw_text and self.show_cluster_number_var.get():
         r, theta_deg = self.cartesian_to_polar(center[1], center[0])
         polar_coord_str = f"({r/radius:.3f}:{int(theta_deg)})"
-        #cv2.putText(image, f"{i} # ({int(center[1])}, {int(center[0])})# {polar_coord_str}", 
         cv2.putText(image, f"{i} {polar_coord_str}", 
                     (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
                     cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_VAL_COLOR, self.FONT_THICKNESS)
-      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
-      closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
-      for idx in closest_indices:
-        closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
+      if draw_connections:
+        distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+        closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
+        for idx in closest_indices:
+          closest_center = self.center_val[idx]
+          cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
 
   def draw_center_org(self, image, color, thickness):
     for i, center in enumerate(self.center_org):
@@ -444,11 +444,11 @@ class VideoClusterFilterApp:
         cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), color, thickness)
 
   def draw_center_numbers(self, image, color, font_size, thickness, centers):
+    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(centers):
       r, theta_deg = self.cartesian_to_polar(center[1], center[0])
-      polar_coord_str = f"({r:.1f}, {theta_deg:.1f})"
-      # Format: No (x, y) (r, angle)
-      cv2.putText(image, f"{i} ({int(center[1])}, {int(center[0])}) {polar_coord_str}", 
+      polar_coord_str = f"({r/radius:.3f}:{int(theta_deg)})"
+      cv2.putText(image, f"{i} {polar_coord_str}", 
                   (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
                   cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
 
@@ -702,7 +702,7 @@ class VideoClusterFilterApp:
         filled_out.write(filled_only_img)
 
         center_val_img = np.zeros_like(frame)
-        self.draw_center_markers(center_val_img, self.center_val, self.EXPORT_CENTER_VAL_COLOR, self.EXPORT_CENTER_VAL_THICKNESS)
+        self.draw_center_val(center_val_img, self.EXPORT_CENTER_VAL_COLOR, self.EXPORT_CENTER_VAL_THICKNESS)
         center_val_out.write(center_val_img)
 
         center_org_img = np.zeros_like(frame)
@@ -769,6 +769,7 @@ class VideoClusterFilterApp:
       messagebox.showinfo("Info", "Video processing completed and saved.")
 
   def draw_connection_lengths(self, image, color, font_size, thickness):
+    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
@@ -776,7 +777,9 @@ class VideoClusterFilterApp:
         closest_center = self.center_val[idx]
         mid_point = ((int(center[1]) + int(closest_center[1])) // 2, (int(center[0]) + int(closest_center[0])) // 2)
         length = np.linalg.norm(np.array(center) - np.array(closest_center))
-        cv2.putText(image, f"{int(length)}", (mid_point[0], mid_point[1]), cv2.FONT_HERSHEY_SIMPLEX, font_size, color, thickness)
+        hav_length = self.haversine_distance(center[:2], closest_center[:2])
+        cv2.putText(image, f"{hav_length/radius:.3f} ({length/radius:.3f})", (mid_point[0], mid_point[1]),  
+            cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.EXPORT_CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
 
   def select_video(self):
     video_path = filedialog.askopenfilename(filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")])
