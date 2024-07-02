@@ -1,5 +1,5 @@
 # kMeansVideo/main
-# Created 2024-07-01 by David Herren
+# Created 2024-07-02 by David Herren
 
 import numpy as np
 import cv2
@@ -60,7 +60,7 @@ class VideoClusterFilterApp:
   EXPORT_PATH_VAL_THICKNESS = 1
 
   # Font size for numbers
-  FONT_SIZE = 1.2
+  FONT_SIZE = 0.4
   FONT_THICKNESS = 1
   
   # Parameters
@@ -309,9 +309,6 @@ class VideoClusterFilterApp:
       if self.show_all_paths_var.get():
         self.draw_all_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
-      # Draw circle_org in the correct color
-      self.draw_center_org_circles(preview_with_boundaries, self.CIRCLE_ORG_COLOR, self.CIRCLE_ORG_THICKNESS)
-
       # Ensure nr_org is drawn
       self.draw_center_numbers(preview_with_boundaries, self.NUMBER_ORG_COLOR, self.FONT_SIZE, self.CENTER_ORG_THICKNESS, self.center_org)
 
@@ -324,6 +321,7 @@ class VideoClusterFilterApp:
       self.selected_cluster_label.config(text=str(self.selected_cluster))
 
   def draw_lines_and_markers(self, image, centers, color, thickness):
+    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(centers):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
@@ -337,17 +335,75 @@ class VideoClusterFilterApp:
         if self.show_connection_length_var.get():
           mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
           length = np.linalg.norm(np.array(center) - np.array(closest_center))
-          cv2.putText(image, f"{int(length)}", (mid_point[0], mid_point[1]), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
+          hav_length = self.haversine_distance(center[:2], closest_center[:2])
+          #cv2.putText(image, f"{int(hav_length)} ({int(length)})", (mid_point[0], mid_point[1]),
+          cv2.putText(image, f"{hav_length/radius:.3f} ({length/radius:.3f})", (mid_point[0], mid_point[1]),  
+                      cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
+
+  def cartesian_to_polar(self, x, y):
+    # Center of the image
+    center_x, center_y = self.preview_frame.shape[1] // 2, self.preview_frame.shape[0] // 2
+    
+    # Calculate the differences
+    dx = x - center_x
+    dy = center_y - y  # Invert y difference for mathematical positive sense
+    
+    # Calculate the distance (r)
+    r = np.sqrt(dx**2 + dy**2)
+    
+    # Calculate the angle (theta) in degrees
+    theta = np.arctan2(dy, dx)
+    theta_deg = np.degrees(theta)
+    
+    # Convert negative angles to positive angles
+    if theta_deg < 0:
+      theta_deg += 360
+
+    return r, theta_deg
+
+  def haversine_distance(self, coord1, coord2):
+    # Convert polar coordinates to cartesian coordinates
+    def polar_to_cartesian(r, theta_deg):
+      theta_rad = np.radians(theta_deg)
+      x = r * np.cos(theta_rad)
+      y = r * np.sin(theta_rad)
+      return x, y
+
+    r1, theta1 = self.cartesian_to_polar(coord1[1], coord1[0])
+    r2, theta2 = self.cartesian_to_polar(coord2[1], coord2[0])
+
+    R = self.radius_var.get() / 100 * (self.preview_frame.shape[1] / 2)  # Radius corresponds to 80% of the image width
+    if R == 0:  # In case RADIUS_VAR is set to 0
+      R = 409.6
+
+    # Get cartesian coordinates
+    x1, y1 = polar_to_cartesian(r1, theta1)
+    x2, y2 = polar_to_cartesian(r2, theta2)
+    
+    # Calculate cartesian distance
+    dx = x2 - x1
+    dy = y2 - y1
+    d = np.sqrt(dx*dx + dy*dy)
+    
+    # Haversine formula to calculate the distance
+    haversine_dist = 2 * R * np.arcsin(d / (2 * R))
+    return haversine_dist
 
   def get_merge_threshold(self, image_shape):
     return int(self.merge_threshold_var.get() / 100 * (min(image_shape[:2]) / 2))
 
   def draw_center_val(self, image, color, thickness):
+    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(self.center_val):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
       if self.show_cluster_number_var.get():
-        cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_VAL_COLOR, self.FONT_THICKNESS)
+        r, theta_deg = self.cartesian_to_polar(center[1], center[0])
+        polar_coord_str = f"({r/radius:.3f}:{int(theta_deg)})"
+        #cv2.putText(image, f"{i} # ({int(center[1])}, {int(center[0])})# {polar_coord_str}", 
+        cv2.putText(image, f"{i} {polar_coord_str}", 
+                    (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
+                    cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_VAL_COLOR, self.FONT_THICKNESS)
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
       for idx in closest_indices:
@@ -389,7 +445,12 @@ class VideoClusterFilterApp:
 
   def draw_center_numbers(self, image, color, font_size, thickness, centers):
     for i, center in enumerate(centers):
-      cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
+      r, theta_deg = self.cartesian_to_polar(center[1], center[0])
+      polar_coord_str = f"({r:.1f}, {theta_deg:.1f})"
+      # Format: No (x, y) (r, angle)
+      cv2.putText(image, f"{i} ({int(center[1])}, {int(center[0])}) {polar_coord_str}", 
+                  (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
+                  cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
 
   def draw_center_circles(self, image, color, thickness):
     for center in self.center_val:
@@ -706,7 +767,7 @@ class VideoClusterFilterApp:
       messagebox.showinfo("Info", "Video processing stopped.")
     else:
       messagebox.showinfo("Info", "Video processing completed and saved.")
-      
+
   def draw_connection_lengths(self, image, color, font_size, thickness):
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
