@@ -1,5 +1,5 @@
 # kMeansVideo/main
-# Created 2024-07-02 by David Herren
+# Created 2024-07-06 by David Herren
 
 import numpy as np
 import cv2
@@ -9,6 +9,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
 from PIL import Image, ImageTk
+from mpl_toolkits.basemap import Basemap
+import math
 
 class VideoClusterFilterApp:
   # Colors for visualization
@@ -84,8 +86,8 @@ class VideoClusterFilterApp:
     self.root.title("k-Means Video Cluster Filter")
 
     # Initial parameters for k-means
-    self.num_colors = 4
-    self.selected_cluster = 0
+    self.num_colors = self.NUM_COLORS
+    self.selected_cluster = self.SELECTED_CLUSTER
     self.preview_frame = None
     self.current_frame_index = 0
     self.total_frames = 0
@@ -106,6 +108,8 @@ class VideoClusterFilterApp:
     self.stop_processing = False
 
     self.create_gui()
+
+
 
   def create_gui(self):
     left_frame = tk.Frame(self.root)
@@ -320,24 +324,112 @@ class VideoClusterFilterApp:
       self.num_colors_label.config(text=str(self.num_colors))
       self.selected_cluster_label.config(text=str(self.selected_cluster))
 
-  def draw_lines_and_markers(self, image, centers, color, thickness):
-    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
-    for i, center in enumerate(centers):
-      cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+  def image_to_cartesian(self, x, y):
+    # Bestimme die Mitte des Bildes
+    height, width = self.preview_frame.shape[:2]
+    
+    center_x = width // 2
+    center_y = height // 2
+    
+    # Bildkoordinaten in kartesische Koordinaten umwandeln
+    cartesian_x = x - center_x 
+    cartesian_y = center_y - y   # Umkehrung der y-Achse, da Bildkoordinaten von oben nach unten zunehmen
+    
+    #print("Image size:",  height, width) # >> 820 820
 
-    for i, center in enumerate(self.center_val):
-      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
-      closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
-      for idx in closest_indices:
-        closest_center = self.center_val[idx]
-        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), color, thickness)
-        if self.show_connection_length_var.get():
-          mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
-          length = np.linalg.norm(np.array(center) - np.array(closest_center))
-          hav_length = self.haversine_distance(center[:2], closest_center[:2])
-          cv2.putText(image, f"{hav_length/radius:.3f} ({length/radius:.3f})", (mid_point[0], mid_point[1]),  
-                      cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
+    return cartesian_x, cartesian_y
+
+  def carToGeo(self, x, z, r): # z is y in image
+
+    y_squared = r**2 - x**2 - z**2
+    y = math.sqrt(y_squared)
+
+    # Polarwinkel und Azimutalwinkel in Grad
+    theta = math.acos(z / r)
+    phi = math.atan2(y, x)
+    
+    lat = (math.degrees(theta) - 90) * -1
+    lon = (math.degrees(phi) - 90) * -1
+    
+    return lat, lon
+
+  def cartesian_to_geographic(self, x, y, image):
+      # Umwandlung von Bildkoordinaten in kartesische Koordinaten
+      cartesian_x, cartesian_y = self.image_to_cartesian(x, y)
+      
+      # Verwende den angegebenen Radius, um die kartesischen Koordinaten auf geografische Koordinaten zu normalisieren
+      radius = (int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2)))
+      
+      #print(cartesian_x, cartesian_y) # 122 -144 , 230 -48 , 91 302 , -260 -180
+      #text = f"{cartesian_x} {cartesian_y}"
+      #cv2.circle(image, (int(x), int(y)), 10, (0, 0, 255), 2)
+      #cv2.putText(image, text, (int(x)-10, int(y)+30), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, (0, 0, 255), self.FONT_THICKNESS)
+
+      latitude, longitude = self.carToGeo(cartesian_x, cartesian_y, radius)
+
+      return latitude, longitude
+
+  def draw_great_circle_only(self, image, color, thickness):
+      radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
+      for i, center in enumerate(self.center_val):
+        distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+        closest_indices = distances.argsort()[1:self.connection_count_var.get() + 1]
+        
+        for idx in closest_indices:
+          closest_center = self.center_val[idx]
+          lon1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[1]
+          lat1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[0]
+          lon2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[1]
+          lat2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[0]
+          
+          great_circle = ComputeGreatCircleSegments(lon1, lat1, lon2, lat2)
+          center_x = image.shape[1] // 2
+          center_y = image.shape[0] // 2
+          
+          radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1]))
+
+          image = great_circle.draw_great_circle(image, center_x, center_y, radius, color)
+
+  def draw_lines_and_markers(self, image, centers, color, thickness):
+      radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
+      for i, center in enumerate(centers):
+        cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+        cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+
+      for i, center in enumerate(self.center_val):
+        distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+        closest_indices = distances.argsort()[1:self.connection_count_var.get() + 1]
+        for idx in closest_indices:
+          closest_center = self.center_val[idx]
+          cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 0), thickness)
+
+          geographic_coords = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)
+          geographic_coords_str = f"lat {geographic_coords[0]:.3f}, lon {geographic_coords[1]:.3f}"
+          #print(i, "center: ", geographic_coords_str)
+
+          lon1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[1]
+          lat1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[0]
+          lon2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[1]
+          lat2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[0]
+          
+          #print(f"Connection from ({lat1}, {lon1}) to ({lat2}, {lon2})")
+          
+          great_circle = ComputeGreatCircleSegments(lon1, lat1, lon2, lat2)
+          center_x = image.shape[1] // 2
+          center_y = image.shape[0] // 2
+          radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1]))
+          image = great_circle.draw_great_circle(image, center_x, center_y, radius, (0, 0, 255))
+          
+          cv2.putText(image, geographic_coords_str, 
+                      (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
+                      cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, (0, 0, 255), self.FONT_THICKNESS)
+
+          if self.show_connection_length_var.get():
+            mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
+            length = np.linalg.norm(np.array(center) - np.array(closest_center))
+            hav_length = self.haversine_distance(center[:2], closest_center[:2])
+            cv2.putText(image, f"{hav_length / radius:.3f} ({length / radius:.3f})", (mid_point[0], mid_point[1]),  
+                        cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
 
   def cartesian_to_polar(self, x, y):
     # Center of the image
@@ -435,7 +527,7 @@ class VideoClusterFilterApp:
       for center in self.center_val:
         cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
 
-  def draw_connections_only(self, image, color, thickness):
+  def draw_connections_only(self, image, color, thickness):  
     for i, center in enumerate(self.center_val):
       distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
       closest_indices = distances.argsort()[1:self.connection_count_var.get()+1]
@@ -645,6 +737,8 @@ class VideoClusterFilterApp:
       center_org_out = cv2.VideoWriter(center_org_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       connections_output_path = self.get_unique_filename(output_dir, 'connections', '.avi')
       connections_out = cv2.VideoWriter(connections_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      great_circle_output_path = self.get_unique_filename(output_dir, 'great_circle', '.avi')
+      great_circle_out = cv2.VideoWriter(great_circle_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_val_output_path = self.get_unique_filename(output_dir, 'nr_val', '.avi')
       nr_val_out = cv2.VideoWriter(nr_val_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_org_output_path = self.get_unique_filename(output_dir, 'nr_org', '.avi')
@@ -712,6 +806,10 @@ class VideoClusterFilterApp:
         connections_img = np.zeros_like(frame)
         self.draw_connections_only(connections_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
         connections_out.write(connections_img)
+        
+        great_circle_img = np.zeros_like(frame)
+        self.draw_great_circle_only(great_circle_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
+        great_circle_out.write(great_circle_img)
 
         nr_val_img = np.zeros_like(frame)
         self.draw_center_numbers(nr_val_img, self.EXPORT_NUMBER_VAL_COLOR, self.FONT_SIZE, self.FONT_THICKNESS, self.center_val)
@@ -754,6 +852,7 @@ class VideoClusterFilterApp:
       center_val_out.release()
       center_org_out.release()
       connections_out.release()
+      great_circle_out.release()
       nr_val_out.release()
       nr_org_out.release()
       connection_length_out.release()
@@ -824,6 +923,56 @@ class VideoClusterFilterApp:
       if not ret:
         return
       self.update_preview()
+
+class ComputeGreatCircleSegments:
+  def __init__(self, lon1, lat1, lon2, lat2, num_points=20):
+    self.lon1 = lon1
+    self.lat1 = lat1
+    self.lon2 = lon2
+    self.lat2 = lat2
+    self.num_points = num_points
+    self.points = self.compute_segments()
+
+  def compute_segments(self):
+    points = []
+    for i in range(self.num_points + 1):
+      frac = i / self.num_points
+      lon = self.lon1 + frac * (self.lon2 - self.lon1)
+      lat = self.lat1 + frac * (self.lat2 - self.lat1)
+      points.append((lon, lat))
+    return points
+
+  def draw_great_circle(self, image, center_x, center_y, image_size, color):
+    # Basemap-Instanz mit orthographischer Projektion
+    m = Basemap(projection='ortho', lat_0=0, lon_0=0)
+
+    # Konvertiere die Punkte in Bildkoordinaten und zeichne die Linien
+    for i in range(len(self.points) - 1):
+      lon_start, lat_start = self.points[i]
+      lon_end, lat_end = self.points[i + 1]
+
+      x_start, y_start = m(lon_start, lat_start)
+      x_end, y_end = m(lon_end, lat_end)
+
+      # Skalieren und Umwandeln in ganze Zahlen
+      x_start, y_start = int(x_start / m.xmax * image_size), int((m.ymax - y_start) / m.ymax * image_size)
+      x_end, y_end = int(x_end / m.xmax * image_size), int((m.ymax - y_end) / m.ymax * image_size)
+
+      # Offset berechnen, um das Bild zu zentrieren
+      x_start += center_x - image_size // 2
+      y_start += center_y - image_size // 2
+      x_end += center_x - image_size // 2
+      y_end += center_y - image_size // 2
+
+      # Zeichne die Linie auf das Bild
+      if 0 <= x_start < image.shape[1] and 0 <= y_start < image.shape[0] and 0 <= x_end < image.shape[1] and 0 <= y_end < image.shape[0]:
+        cv2.line(image, (x_start, y_start), (x_end, y_end), color, 1)
+    
+    # Zeichne den Kreis um das Zentrum
+    #radius = image_size // 2
+    #cv2.circle(image, (center_x, center_y), radius, color, 1)
+    
+    return image
 
 if __name__ == "__main__":
   root = tk.Tk()
