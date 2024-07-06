@@ -11,6 +11,8 @@ from tkinter import messagebox, filedialog, ttk
 from PIL import Image, ImageTk
 from mpl_toolkits.basemap import Basemap
 import math
+from geopy.distance import geodesic
+from geopy.point import Point
 
 class VideoClusterFilterApp:
   # Colors for visualization
@@ -935,18 +937,38 @@ class ComputeGreatCircleSegments:
 
   def compute_segments(self):
     points = []
+    start = Point(self.lat1, self.lon1)
+    end = Point(self.lat2, self.lon2)
+    total_distance = geodesic(start, end).kilometers
+    initial_bearing = self.calculate_initial_compass_bearing(start, end)
     for i in range(self.num_points + 1):
       frac = i / self.num_points
-      lon = self.lon1 + frac * (self.lon2 - self.lon1)
-      lat = self.lat1 + frac * (self.lat2 - self.lat1)
-      points.append((lon, lat))
+      distance = total_distance * frac
+      intermediate_point = geodesic(kilometers=distance).destination(point=start, bearing=initial_bearing)
+      points.append((intermediate_point.longitude, intermediate_point.latitude))
     return points
 
-  def draw_great_circle(self, image, center_x, center_y, image_size, color):
-    # Basemap-Instanz mit orthographischer Projektion
-    m = Basemap(projection='ortho', lat_0=0, lon_0=0)
+  @staticmethod
+  def calculate_initial_compass_bearing(pointA, pointB):
+    import math
 
-    # Konvertiere die Punkte in Bildkoordinaten und zeichne die Linien
+    lat1 = math.radians(pointA.latitude)
+    lat2 = math.radians(pointB.latitude)
+    diffLong = math.radians(pointB.longitude - pointA.longitude)
+
+    x = math.sin(diffLong) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(diffLong))
+
+    initial_bearing = math.atan2(x, y)
+
+    initial_bearing = math.degrees(initial_bearing)
+    compass_bearing = (initial_bearing + 360) % 360
+
+    return compass_bearing
+
+  def draw_great_circle(self, image, center_x, center_y, image_size, color):
+    m = Basemap(projection='ortho', lat_0=0, lon_0=0)
+    
     for i in range(len(self.points) - 1):
       lon_start, lat_start = self.points[i]
       lon_end, lat_end = self.points[i + 1]
@@ -954,23 +976,16 @@ class ComputeGreatCircleSegments:
       x_start, y_start = m(lon_start, lat_start)
       x_end, y_end = m(lon_end, lat_end)
 
-      # Skalieren und Umwandeln in ganze Zahlen
       x_start, y_start = int(x_start / m.xmax * image_size), int((m.ymax - y_start) / m.ymax * image_size)
       x_end, y_end = int(x_end / m.xmax * image_size), int((m.ymax - y_end) / m.ymax * image_size)
 
-      # Offset berechnen, um das Bild zu zentrieren
       x_start += center_x - image_size // 2
       y_start += center_y - image_size // 2
       x_end += center_x - image_size // 2
       y_end += center_y - image_size // 2
 
-      # Zeichne die Linie auf das Bild
       if 0 <= x_start < image.shape[1] and 0 <= y_start < image.shape[0] and 0 <= x_end < image.shape[1] and 0 <= y_end < image.shape[0]:
         cv2.line(image, (x_start, y_start), (x_end, y_end), color, 1)
-    
-    # Zeichne den Kreis um das Zentrum
-    #radius = image_size // 2
-    #cv2.circle(image, (center_x, center_y), radius, color, 1)
     
     return image
 
