@@ -6,5 +6,5 @@ This project can detect darkening areas from [Solar Dynamics Observatory](https:
 ![capture](https://github.com/herdav/dunkelwolke/blob/main/img/gui.png)
 Video courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.
 
-### Ellipse
+### Orthodrome
 ![capture](https://github.com/herdav/dunkelwolke/blob/main/img/ellipse.png)
