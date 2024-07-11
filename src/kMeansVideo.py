@@ -1,5 +1,5 @@
-# kMeansVideo/main
-# Created 2024-07-06 by David Herren
+# kMeansVideo
+# Created 2024-07-11 by David Herren
 
 import numpy as np
 import cv2
@@ -78,11 +78,12 @@ class VideoClusterFilterApp:
   T_VAL_VAR = 10
   T_EXIST_VAR = 20
   CONNECTION_COUNT_VAR = 1
+  EXPORT_SEPARATE_VAR = 1
   SHOW_CLUSTER_NUMBER_VAR = 1
   SHOW_SECOND_KMEANS_VAR = 1
-  SHOW_ALL_PATHS_VAR = 1
-  SHOW_CONNECTION_LENGTH_VAR = 1
-
+  SHOW_ALL_PATHS_VAR = 0
+  SHOW_CONNECTION_LENGTH_VAR = 0
+  
   def __init__(self, root):
     self.root = root
     self.root.title("k-Means Video Cluster Filter")
@@ -104,14 +105,12 @@ class VideoClusterFilterApp:
     self.t_val_frames = []
     self.t_org_frames = []
     self.center_paths = []
-    self.all_paths = []  # To store all paths ever drawn
+    #self.all_paths = []  # To store all paths ever drawn
 
     # Stop processing flag
     self.stop_processing = False
 
     self.create_gui()
-
-
 
   def create_gui(self):
     left_frame = tk.Frame(self.root)
@@ -174,7 +173,7 @@ class VideoClusterFilterApp:
     tk.Scale(right_frame, from_=0, to=4, orient='horizontal', variable=self.connection_count_var, command=self.update_preview).grid(row=12, column=1, pady=2, sticky='w')
 
     self.export_original_var = tk.IntVar(value=1)
-    self.export_separate_var = tk.IntVar(value=0)
+    self.export_separate_var = tk.IntVar(value=self.EXPORT_SEPARATE_VAR)
     self.grayscale_var = tk.IntVar(value=self.GRAYSCALE_VAR)
     self.fill_cluster_var = tk.IntVar(value=self.FILL_CLUSTER_VAR)
     self.show_second_kmeans_var = tk.IntVar(value=self.SHOW_SECOND_KMEANS_VAR)
@@ -315,7 +314,6 @@ class VideoClusterFilterApp:
       if self.show_all_paths_var.get():
         self.draw_all_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
-      # Ensure nr_org is drawn
       self.draw_center_numbers(preview_with_boundaries, self.NUMBER_ORG_COLOR, self.FONT_SIZE, self.CENTER_ORG_THICKNESS, self.center_org)
 
       preview_image = Image.fromarray(cv2.cvtColor(preview_with_boundaries, cv2.COLOR_BGR2RGB))
@@ -327,48 +325,27 @@ class VideoClusterFilterApp:
       self.selected_cluster_label.config(text=str(self.selected_cluster))
 
   def image_to_cartesian(self, x, y):
-    # Bestimme die Mitte des Bildes
     height, width = self.preview_frame.shape[:2]
-    
     center_x = width // 2
     center_y = height // 2
-    
-    # Bildkoordinaten in kartesische Koordinaten umwandeln
     cartesian_x = x - center_x 
-    cartesian_y = center_y - y   # Umkehrung der y-Achse, da Bildkoordinaten von oben nach unten zunehmen
-    
-    #print("Image size:",  height, width) # >> 820 820
-
+    cartesian_y = center_y - y
     return cartesian_x, cartesian_y
 
   def carToGeo(self, x, z, r): # z is y in image
-
     y_squared = r**2 - x**2 - z**2
     y = math.sqrt(y_squared)
-
-    # Polarwinkel und Azimutalwinkel in Grad
     theta = math.acos(z / r)
     phi = math.atan2(y, x)
-    
     lat = (math.degrees(theta) - 90) * -1
     lon = (math.degrees(phi) - 90) * -1
     
     return lat, lon
 
   def cartesian_to_geographic(self, x, y, image):
-      # Umwandlung von Bildkoordinaten in kartesische Koordinaten
       cartesian_x, cartesian_y = self.image_to_cartesian(x, y)
-      
-      # Verwende den angegebenen Radius, um die kartesischen Koordinaten auf geografische Koordinaten zu normalisieren
       radius = (int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2)))
-      
-      #print(cartesian_x, cartesian_y) # 122 -144 , 230 -48 , 91 302 , -260 -180
-      #text = f"{cartesian_x} {cartesian_y}"
-      #cv2.circle(image, (int(x), int(y)), 10, (0, 0, 255), 2)
-      #cv2.putText(image, text, (int(x)-10, int(y)+30), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, (0, 0, 255), self.FONT_THICKNESS)
-
       latitude, longitude = self.carToGeo(cartesian_x, cartesian_y, radius)
-
       return latitude, longitude
 
   def draw_great_circle_only(self, image, color, thickness):
@@ -384,7 +361,7 @@ class VideoClusterFilterApp:
           lon2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[1]
           lat2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[0]
           
-          great_circle = ComputeGreatCircleSegments(lon1, lat1, lon2, lat2)
+          great_circle = GreatCircleSegments(lon1, lat1, lon2, lat2)
           center_x = image.shape[1] // 2
           center_y = image.shape[0] // 2
           
@@ -392,68 +369,80 @@ class VideoClusterFilterApp:
 
           image = great_circle.draw_great_circle(image, center_x, center_y, radius, color)
 
+  def draw_center_ellipse_only(self, image, color, thikness):
+    for i, center in enumerate(self.center_val):
+      angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
+      ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, 819.2, self.get_merge_threshold(image.shape)/2, color, thikness)
+      ellipse_plotter.draw_ellipse(image)
+
+  def draw_geographic_coords(self, image, center, color, index=None):
+    geographic_coords = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)
+    if index is not None:
+      center_string = f"[{index}] {geographic_coords[0]:.1f};{geographic_coords[1]:.1f}"
+    else:
+      center_string = f"[{geographic_coords[0]:.1f};{geographic_coords[1]:.1f}"
+      
+    cv2.putText(image, center_string, 
+          (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
+          cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, color, self.FONT_THICKNESS)
+
+  def calculate_angle_and_distance(self, x1, y1, x2, y2):
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+    angle = math.degrees(math.atan2(delta_y, delta_x))
+    distance = math.sqrt(delta_x**2 + delta_y**2)
+    return angle, distance
+
   def draw_lines_and_markers(self, image, centers, color, thickness):
-      radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
-      for i, center in enumerate(centers):
-        cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
+    for i, center in enumerate(self.center_val):
+      distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
+      closest_indices = distances.argsort()[1:self.connection_count_var.get() + 1]
+      for idx in closest_indices:
+        closest_center = self.center_val[idx]
+        cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 0), thickness)
+
+        lon1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[1]
+        lat1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[0]
+        lon2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[1]
+        lat2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[0]
+
+        great_circle = GreatCircleSegments(lon1, lat1, lon2, lat2)
+        center_x = image.shape[1] // 2
+        center_y = image.shape[0] // 2
+        radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1]))
+        image = great_circle.draw_great_circle(image, center_x, center_y, radius, (0, 0, 255))
+        
         cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+        
+        angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
+        ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, 819.2, self.get_merge_threshold(image.shape)/2, self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+        ellipse_plotter.draw_ellipse(image)
 
-      for i, center in enumerate(self.center_val):
-        distances = np.linalg.norm(np.array(self.center_val) - center, axis=1)
-        closest_indices = distances.argsort()[1:self.connection_count_var.get() + 1]
-        for idx in closest_indices:
-          closest_center = self.center_val[idx]
-          cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), (255, 0, 0), thickness)
+        self.draw_geographic_coords(image, center, (0, 0, 255), index=i)
 
-          geographic_coords = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)
-          geographic_coords_str = f"lat {geographic_coords[0]:.3f}, lon {geographic_coords[1]:.3f}"
-          #print(i, "center: ", geographic_coords_str)
+        if self.show_connection_length_var.get():
+          mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
+          length = np.linalg.norm(np.array(center) - np.array(closest_center))
+          hav_length = self.haversine_distance(center[:2], closest_center[:2])
+          cv2.putText(image, f"{hav_length / radius:.3f} ({length / radius:.3f})", (mid_point[0], mid_point[1]),  
+                      cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
 
-          lon1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[1]
-          lat1 = self.cartesian_to_geographic(int(center[1]), int(center[0]), image)[0]
-          lon2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[1]
-          lat2 = self.cartesian_to_geographic(int(closest_center[1]), int(closest_center[0]), image)[0]
-          
-          #print(f"Connection from ({lat1}, {lon1}) to ({lat2}, {lon2})")
-          
-          great_circle = ComputeGreatCircleSegments(lon1, lat1, lon2, lat2)
-          center_x = image.shape[1] // 2
-          center_y = image.shape[0] // 2
-          radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1]))
-          image = great_circle.draw_great_circle(image, center_x, center_y, radius, (0, 0, 255))
-          
-          cv2.putText(image, geographic_coords_str, 
-                      (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
-                      cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, (0, 0, 255), self.FONT_THICKNESS)
-
-          if self.show_connection_length_var.get():
-            mid_point = (int((center[1] + closest_center[1]) // 2), int((center[0] + closest_center[0]) // 2))
-            length = np.linalg.norm(np.array(center) - np.array(closest_center))
-            hav_length = self.haversine_distance(center[:2], closest_center[:2])
-            cv2.putText(image, f"{hav_length / radius:.3f} ({length / radius:.3f})", (mid_point[0], mid_point[1]),  
-                        cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.CONNEC_LENGTH_COLOR, self.FONT_THICKNESS)
-
+  def draw_center_numbers(self, image, color, font_size, thickness, centers):
+    for i, center in enumerate(centers):
+      self.draw_geographic_coords(image, center, color, index=i)
+      
   def cartesian_to_polar(self, x, y):
-    # Center of the image
     center_x, center_y = self.preview_frame.shape[1] // 2, self.preview_frame.shape[0] // 2
-    
-    # Calculate the differences
     dx = x - center_x
-    dy = center_y - y  # Invert y difference for mathematical positive sense
-    
-    # Calculate the distance (r)
+    dy = center_y - y
     r = np.sqrt(dx**2 + dy**2)
-    
-    # Calculate the angle (theta) in degrees
     theta = np.arctan2(dy, dx)
     theta_deg = np.degrees(theta)
-    
-    # Convert negative angles to positive angles
     if theta_deg < 0:
       theta_deg += 360
-
     return r, theta_deg
-
+  
   def haversine_distance(self, coord1, coord2):
     # Convert polar coordinates to cartesian coordinates
     def polar_to_cartesian(r, theta_deg):
@@ -489,10 +478,10 @@ class VideoClusterFilterApp:
     radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
     for i, center in enumerate(self.center_val):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
+      r, theta_deg = self.cartesian_to_polar(center[1], center[0])
       if draw_circles:
         cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
       if draw_text and self.show_cluster_number_var.get():
-        r, theta_deg = self.cartesian_to_polar(center[1], center[0])
         polar_coord_str = f"({r/radius:.3f}:{int(theta_deg)})"
         cv2.putText(image, f"{i} {polar_coord_str}", 
                     (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
@@ -520,8 +509,8 @@ class VideoClusterFilterApp:
   def draw_all_paths(self, image, color, thickness):
     for path in self.all_paths:
       if len(path) > 1:
-        for j in range(1, len(path)):
-          cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
+       for j in range(1, len(path)):
+         cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
 
   def draw_center_markers(self, image, centers, color, thickness):
     for center in centers:
@@ -537,15 +526,6 @@ class VideoClusterFilterApp:
         closest_center = self.center_val[idx]
         cv2.line(image, (int(center[1]), int(center[0])), (int(closest_center[1]), int(closest_center[0])), color, thickness)
 
-  def draw_center_numbers(self, image, color, font_size, thickness, centers):
-    radius = int(self.radius_var.get() / 100 * (self.preview_frame.shape[1] // 2))
-    for i, center in enumerate(centers):
-      r, theta_deg = self.cartesian_to_polar(center[1], center[0])
-      polar_coord_str = f"({r/radius:.3f}:{int(theta_deg)})"
-      cv2.putText(image, f"{i} {polar_coord_str}", 
-                  (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), 
-                  cv2.FONT_HERSHEY_SIMPLEX, font_size, color, int(thickness))
-
   def draw_center_circles(self, image, color, thickness):
     for center in self.center_val:
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), color, thickness)
@@ -558,12 +538,12 @@ class VideoClusterFilterApp:
     self.num_colors = max(1, self.num_colors - 1)
     if self.selected_cluster >= self.num_colors:
       self.selected_cluster = self.num_colors - 1
-    self.kmeans = None  # Reset kmeans to ensure re-initialization with the new number of clusters
+    self.kmeans = None
     self.update_preview()
 
   def increase_colors(self):
     self.num_colors += 1
-    self.kmeans = None  # Reset kmeans to ensure re-initialization with the new number of clusters
+    self.kmeans = None
     self.update_preview()
 
   def decrease_cluster(self):
@@ -622,7 +602,7 @@ class VideoClusterFilterApp:
       self.center_val = new_centers.tolist()[:max_centers]
       self.t_val_frames = [t_val] * len(self.center_val)
       self.center_paths = [[center] for center in self.center_val]
-      self.all_paths.extend(self.center_paths)  # Add initial paths to all_paths
+      #self.all_paths.extend(self.center_paths)  # Add initial paths to all_paths
       return
 
     for new_center in new_centers:
@@ -637,7 +617,7 @@ class VideoClusterFilterApp:
       if not merged:
         self.center_org.append(new_center.tolist())
         self.t_org_frames.append(t_exist)
-        self.all_paths.append([new_center])  # Add new paths to all_paths
+        #self.all_paths.append([new_center])  # Add new paths to all_paths
 
     self.merge_existing_centers(merge_threshold)
     self.remove_expired_centers(merge_threshold, t_val)
@@ -741,20 +721,22 @@ class VideoClusterFilterApp:
       connections_out = cv2.VideoWriter(connections_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       great_circle_output_path = self.get_unique_filename(output_dir, 'great_circle', '.avi')
       great_circle_out = cv2.VideoWriter(great_circle_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      center_ellipse_output_path = self.get_unique_filename(output_dir, 'center_ellipse', '.avi')
+      center_ellipse_out = cv2.VideoWriter(center_ellipse_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_val_output_path = self.get_unique_filename(output_dir, 'nr_val', '.avi')
       nr_val_out = cv2.VideoWriter(nr_val_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_org_output_path = self.get_unique_filename(output_dir, 'nr_org', '.avi')
       nr_org_out = cv2.VideoWriter(nr_org_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
-      connection_length_output_path = self.get_unique_filename(output_dir, 'connection_length', '.avi')
-      connection_length_out = cv2.VideoWriter(connection_length_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      #connection_length_output_path = self.get_unique_filename(output_dir, 'connection_length', '.avi')
+      #connection_length_out = cv2.VideoWriter(connection_length_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       circle_val_output_path = self.get_unique_filename(output_dir, 'circle_val', '.avi')
       circle_val_out = cv2.VideoWriter(circle_val_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       circle_org_output_path = self.get_unique_filename(output_dir, 'circle_org', '.avi')
       circle_org_out = cv2.VideoWriter(circle_org_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
-      path_output_path = self.get_unique_filename(output_dir, 'path', '.avi')
-      path_out = cv2.VideoWriter(path_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
-      all_paths_output_path = self.get_unique_filename(output_dir, 'all_paths', '.avi')
-      all_paths_out = cv2.VideoWriter(all_paths_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      #path_output_path = self.get_unique_filename(output_dir, 'path', '.avi')
+      #path_out = cv2.VideoWriter(path_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      #all_paths_output_path = self.get_unique_filename(output_dir, 'all_paths', '.avi')
+      #all_paths_out = cv2.VideoWriter(all_paths_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
 
     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -812,6 +794,10 @@ class VideoClusterFilterApp:
         great_circle_img = np.zeros_like(frame)
         self.draw_great_circle_only(great_circle_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
         great_circle_out.write(great_circle_img)
+        
+        center_ellipse_img = np.zeros_like(frame)
+        self.draw_center_ellipse_only(center_ellipse_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
+        center_ellipse_out.write(center_ellipse_img)
 
         nr_val_img = np.zeros_like(frame)
         self.draw_center_numbers(nr_val_img, self.EXPORT_NUMBER_VAL_COLOR, self.FONT_SIZE, self.FONT_THICKNESS, self.center_val)
@@ -821,9 +807,9 @@ class VideoClusterFilterApp:
         self.draw_center_numbers(nr_org_img, self.EXPORT_NUMBER_ORG_COLOR, self.FONT_SIZE, self.FONT_THICKNESS, self.center_org)
         nr_org_out.write(nr_org_img)
 
-        connection_length_img = np.zeros_like(frame)
-        self.draw_connection_lengths(connection_length_img, self.EXPORT_CONNEC_LENGTH_COLOR, self.FONT_SIZE, self.FONT_THICKNESS)
-        connection_length_out.write(connection_length_img)
+        #connection_length_img = np.zeros_like(frame)
+        #self.draw_connection_lengths(connection_length_img, self.EXPORT_CONNEC_LENGTH_COLOR, self.FONT_SIZE, self.FONT_THICKNESS)
+        #connection_length_out.write(connection_length_img)
 
         circle_val_img = np.zeros_like(frame)
         self.draw_center_circles(circle_val_img, self.EXPORT_CIRCLE_VAL_COLOR, self.EXPORT_CIRCLE_VAL_THICKNESS)
@@ -833,13 +819,13 @@ class VideoClusterFilterApp:
         self.draw_center_org_circles(circle_org_img, self.EXPORT_CIRCLE_ORG_COLOR, self.EXPORT_CIRCLE_ORG_THICKNESS)
         circle_org_out.write(circle_org_img)
 
-        path_img = np.zeros_like(frame)
-        self.draw_center_paths(path_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
-        path_out.write(path_img)
+        #path_img = np.zeros_like(frame)
+        #self.draw_center_paths(path_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
+        #path_out.write(path_img)
 
-        all_paths_img = np.zeros_like(frame)
-        self.draw_all_paths(all_paths_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
-        all_paths_out.write(all_paths_img)
+        #all_paths_img = np.zeros_like(frame)
+        #self.draw_all_paths(all_paths_img, self.EXPORT_PATH_VAL_COLOR, self.EXPORT_PATH_VAL_THICKNESS)
+        #all_paths_out.write(all_paths_img)
 
       self.progress_bar['value'] = frame_num + 1
       self.progress_label.config(text=f"Exporting frame {frame_num + 1}/{total_frames}")
@@ -855,13 +841,14 @@ class VideoClusterFilterApp:
       center_org_out.release()
       connections_out.release()
       great_circle_out.release()
+      center_ellipse_out.release()
       nr_val_out.release()
       nr_org_out.release()
-      connection_length_out.release()
+      #connection_length_out.release()
       circle_val_out.release()
       circle_org_out.release()
-      path_out.release()
-      all_paths_out.release()
+      #path_out.release()
+      #all_paths_out.release()
     cv2.destroyAllWindows()
 
     if self.stop_processing:
@@ -926,7 +913,7 @@ class VideoClusterFilterApp:
         return
       self.update_preview()
 
-class ComputeGreatCircleSegments:
+class GreatCircleSegments:
   def __init__(self, lon1, lat1, lon2, lat2, num_points=20):
     self.lon1 = lon1
     self.lat1 = lat1
@@ -988,6 +975,28 @@ class ComputeGreatCircleSegments:
         cv2.line(image, (x_start, y_start), (x_end, y_end), color, 1)
     
     return image
+
+class CenterEllipse:
+  def __init__(self, center_x, center_y, x, angle, x_max, r, color, thikness):
+    self.center_x = center_x
+    self.center_y = center_y
+    self.x = x
+    self.angle = angle
+    self.x_max = x_max
+    self.r = r
+    self.color = color
+    self.thikness = thikness
+    
+  def calculate_params(self):
+    x_normalized = self.x / self.x_max
+    r1 = self.r - np.tan(x_normalized) * self.r
+    r2 = self.r 
+    return (max(1, 2*r1), max(1, 2*r2))
+
+  def draw_ellipse(self, image):
+    width, height = self.calculate_params()
+    angle = self.angle
+    cv2.ellipse(image, (self.center_x, self.center_y), (int(width), int(height)), angle, 0, 360, self.color, self.thikness)
 
 if __name__ == "__main__":
   root = tk.Tk()
