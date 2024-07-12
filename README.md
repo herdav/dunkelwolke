@@ -8,5 +8,8 @@ This is scientifically quite useless but draws pretty [graphics](https://vimeo.c
 ![capture](https://github.com/herdav/dunkelwolke/blob/main/img/gui.png)
 Video courtesy of NASA/SDO and the AIA, EVE, and HMI science teams.
 
+### Cluster
+![capture](https://github.com/herdav/dunkelwolke/blob/main/img/cluster.png)
+
 ### Orthodrome
 ![capture](https://github.com/herdav/dunkelwolke/blob/main/img/ellipse.png)
