@@ -1,5 +1,5 @@
 # kMeansVideo
-# Created 2024-07-11 by David Herren
+# Created 2024-07-13 by David Herren
 
 import numpy as np
 import cv2
@@ -83,6 +83,7 @@ class VideoClusterFilterApp:
   SHOW_SECOND_KMEANS_VAR = 1
   SHOW_ALL_PATHS_VAR = 0
   SHOW_CONNECTION_LENGTH_VAR = 0
+  MAX_ELLIPSE_DIST = 409.6
   
   def __init__(self, root):
     self.root = root
@@ -104,7 +105,7 @@ class VideoClusterFilterApp:
     self.center_val = []
     self.t_val_frames = []
     self.t_org_frames = []
-    self.center_paths = []
+    #self.center_paths = []
     #self.all_paths = []  # To store all paths ever drawn
 
     # Stop processing flag
@@ -309,7 +310,7 @@ class VideoClusterFilterApp:
 
       if self.center_val_var.get():
         self.draw_center_val(preview_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
-        self.draw_center_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
+        #self.draw_center_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
       if self.show_all_paths_var.get():
         self.draw_all_paths(preview_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
@@ -369,10 +370,10 @@ class VideoClusterFilterApp:
 
           image = great_circle.draw_great_circle(image, center_x, center_y, radius, color)
 
-  def draw_center_ellipse_only(self, image, color, thikness):
+  def draw_center_val_ellipse_only(self, image, color, thikness):
     for i, center in enumerate(self.center_val):
       angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
-      ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, 819.2, self.get_merge_threshold(image.shape)/2, color, thikness)
+      ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, self.MAX_ELLIPSE_DIST, self.get_merge_threshold(image.shape)/2, color, thikness)
       ellipse_plotter.draw_ellipse(image)
 
   def draw_geographic_coords(self, image, center, color, index=None):
@@ -416,7 +417,7 @@ class VideoClusterFilterApp:
         cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
         
         angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
-        ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, 819.2, self.get_merge_threshold(image.shape)/2, self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
+        ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, self.MAX_ELLIPSE_DIST, self.get_merge_threshold(image.shape)/2, self.CIRCLE_VAL_COLOR, self.CIRCLE_VAL_THICKNESS)
         ellipse_plotter.draw_ellipse(image)
 
         self.draw_geographic_coords(image, center, (0, 0, 255), index=i)
@@ -496,15 +497,20 @@ class VideoClusterFilterApp:
   def draw_center_org(self, image, color, thickness):
     for i, center in enumerate(self.center_org):
       cv2.drawMarker(image, (int(center[1]), int(center[0])), color=color, markerType=cv2.MARKER_CROSS, markerSize=20, thickness=thickness)
-      cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_ORG_COLOR, self.CIRCLE_ORG_THICKNESS)
+      #cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), self.CIRCLE_ORG_COLOR, self.CIRCLE_ORG_THICKNESS)
+      
+      angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
+      ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, self.MAX_ELLIPSE_DIST, self.get_merge_threshold(image.shape)/2, self.CIRCLE_ORG_COLOR, self.CIRCLE_ORG_THICKNESS)
+      ellipse_plotter.draw_ellipse(image)
+      
       if self.show_cluster_number_var.get():
         cv2.putText(image, str(i), (int(center[1]) + self.get_merge_threshold(image.shape) + 10, int(center[0])), cv2.FONT_HERSHEY_SIMPLEX, self.FONT_SIZE, self.NUMBER_ORG_COLOR, self.FONT_THICKNESS)
 
-  def draw_center_paths(self, image, color, thickness):
-    for path in self.center_paths:
-      if len(path) > 1:
-        for j in range(1, len(path)):
-          cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
+  #def draw_center_paths(self, image, color, thickness):
+  #  for path in self.center_paths:
+  #    if len(path) > 1:
+  #     for j in range(1, len(path)):
+  #        cv2.line(image, (int(path[j-1][1]), int(path[j-1][0])), (int(path[j][1]), int(path[j][0])), color, thickness)
 
   def draw_all_paths(self, image, color, thickness):
     for path in self.all_paths:
@@ -533,6 +539,12 @@ class VideoClusterFilterApp:
   def draw_center_org_circles(self, image, color, thickness):
     for center in self.center_org:
       cv2.circle(image, (int(center[1]), int(center[0])), self.get_merge_threshold(image.shape), color, thickness)
+      
+  def draw_center_org_ellipse_only(self, image, color, thickness):
+    for center in self.center_org:
+      angle, r = self.calculate_angle_and_distance(int(center[1]), int(center[0]), 512, 512)
+      ellipse_plotter = CenterEllipse(int(center[1]), int(center[0]), r, angle, self.MAX_ELLIPSE_DIST, self.get_merge_threshold(image.shape)/2, color, thickness)
+      ellipse_plotter.draw_ellipse(image)
 
   def decrease_colors(self):
     self.num_colors = max(1, self.num_colors - 1)
@@ -601,7 +613,7 @@ class VideoClusterFilterApp:
     if len(self.center_val) == 0:
       self.center_val = new_centers.tolist()[:max_centers]
       self.t_val_frames = [t_val] * len(self.center_val)
-      self.center_paths = [[center] for center in self.center_val]
+      #self.center_paths = [[center] for center in self.center_val]
       #self.all_paths.extend(self.center_paths)  # Add initial paths to all_paths
       return
 
@@ -611,7 +623,7 @@ class VideoClusterFilterApp:
         if np.linalg.norm(new_center[:2] - val_center[:2]) < merge_threshold:
           self.center_val[i] = (np.array(val_center) * (self.t_val_frames[i] - 1) + np.array(new_center)) / self.t_val_frames[i]
           self.t_val_frames[i] = t_val
-          self.center_paths[i].append(new_center)
+          #self.center_paths[i].append(new_center)
           merged = True
           break
       if not merged:
@@ -630,10 +642,10 @@ class VideoClusterFilterApp:
       while j < len(self.center_val):
         if np.linalg.norm(np.array(self.center_val[i][:2]) - np.array(self.center_val[j][:2])) < merge_threshold:
           self.center_val[i] = (np.array(self.center_val[i]) + np.array(self.center_val[j])) / 2
-          self.center_paths[i].extend(self.center_paths[j])
+          #self.center_paths[i].extend(self.center_paths[j])
           del self.center_val[j]
           del self.t_val_frames[j]
-          del self.center_paths[j]
+          #del self.center_paths[j]
         else:
           j += 1
       i += 1
@@ -646,7 +658,7 @@ class VideoClusterFilterApp:
     indices_to_keep = [i for i in range(len(self.center_val)) if self.t_val_frames[i] > 0]
     self.center_val = [self.center_val[i] for i in indices_to_keep]
     self.t_val_frames = [self.t_val_frames[i] for i in indices_to_keep]
-    self.center_paths = [self.center_paths[i] for i in indices_to_keep]
+    #self.center_paths = [self.center_paths[i] for i in indices_to_keep]
 
   def remove_expired_centers(self, merge_threshold, t_val):
     new_stable_centers = []
@@ -667,7 +679,7 @@ class VideoClusterFilterApp:
 
     self.center_val.extend(new_stable_centers)
     self.t_val_frames.extend(new_t_val_frames)
-    self.center_paths.extend(new_paths)
+    #self.center_paths.extend(new_paths)
     indices_to_keep = [i for i in range(len(self.center_org)) if self.t_org_frames[i] > 0]
     self.center_org = [self.center_org[i] for i in indices_to_keep]
     self.t_org_frames = [self.t_org_frames[i] for i in indices_to_keep]
@@ -678,10 +690,10 @@ class VideoClusterFilterApp:
       while j < len(self.center_val):
         if np.linalg.norm(np.array(self.center_val[i][:2]) - np.array(self.center_val[j][:2])) < merge_threshold:
           self.center_val[i] = (np.array(self.center_val[i]) + np.array(self.center_val[j])) / 2
-          self.center_paths[i].extend(self.center_paths[j])
+          #self.center_paths[i].extend(self.center_paths[j])
           del self.center_val[j]
           del self.t_val_frames[j]
-          del self.center_paths[j]
+          #del self.center_paths[j]
         else:
           j += 1
       i += 1
@@ -690,7 +702,7 @@ class VideoClusterFilterApp:
     if len(self.center_val) > max_centers:
       self.center_val = self.center_val[:max_centers]
       self.t_val_frames = self.t_val_frames[:max_centers]
-      self.center_paths = self.center_paths[:max_centers]
+      #self.center_paths = self.center_paths[:max_centers]
 
   def start_processing(self):
     self.stop_processing = False
@@ -721,8 +733,13 @@ class VideoClusterFilterApp:
       connections_out = cv2.VideoWriter(connections_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       great_circle_output_path = self.get_unique_filename(output_dir, 'great_circle', '.avi')
       great_circle_out = cv2.VideoWriter(great_circle_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
-      center_ellipse_output_path = self.get_unique_filename(output_dir, 'center_ellipse', '.avi')
-      center_ellipse_out = cv2.VideoWriter(center_ellipse_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      
+      center_val_ellipse_output_path = self.get_unique_filename(output_dir, 'center__val_ellipse', '.avi')
+      center_val_ellipse_out = cv2.VideoWriter(center_val_ellipse_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      
+      center_org_ellipse_output_path = self.get_unique_filename(output_dir, 'center_org_ellipse', '.avi')
+      center_org_ellipse_out = cv2.VideoWriter(center_org_ellipse_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
+      
       nr_val_output_path = self.get_unique_filename(output_dir, 'nr_val', '.avi')
       nr_val_out = cv2.VideoWriter(nr_val_output_path, fourcc, self.fps, (int(self.cap.get(3)), int(self.cap.get(4))))
       nr_org_output_path = self.get_unique_filename(output_dir, 'nr_org', '.avi')
@@ -771,7 +788,7 @@ class VideoClusterFilterApp:
           self.draw_lines_and_markers(frame_with_boundaries, second_centers, self.CONNEC_VAL_COLOR, self.CONNEC_VAL_THICKNESS)
         self.draw_center_val(frame_with_boundaries, self.CENTER_VAL_COLOR, self.CENTER_VAL_THICKNESS)
         self.draw_center_org(frame_with_boundaries, self.CENTER_ORG_COLOR, self.CENTER_ORG_THICKNESS)
-        self.draw_center_paths(frame_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
+        #self.draw_center_paths(frame_with_boundaries, self.PATH_VAL_COLOR, self.PATH_VAL_THICKNESS)
 
       if export_original:
         out.write(frame_with_boundaries)
@@ -795,9 +812,13 @@ class VideoClusterFilterApp:
         self.draw_great_circle_only(great_circle_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
         great_circle_out.write(great_circle_img)
         
-        center_ellipse_img = np.zeros_like(frame)
-        self.draw_center_ellipse_only(center_ellipse_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
-        center_ellipse_out.write(center_ellipse_img)
+        center_val_ellipse_img = np.zeros_like(frame)
+        self.draw_center_val_ellipse_only(center_val_ellipse_img, self.EXPORT_CONNEC_VAL_COLOR, self.EXPORT_CONNEC_VAL_THICKNESS)
+        center_val_ellipse_out.write(center_val_ellipse_img)
+        
+        center_org_ellipse_img = np.zeros_like(frame)
+        self.draw_center_org_ellipse_only(center_org_ellipse_img, self.EXPORT_CIRCLE_ORG_COLOR, self.EXPORT_CIRCLE_ORG_THICKNESS)
+        center_org_ellipse_out.write(center_org_ellipse_img)
 
         nr_val_img = np.zeros_like(frame)
         self.draw_center_numbers(nr_val_img, self.EXPORT_NUMBER_VAL_COLOR, self.FONT_SIZE, self.FONT_THICKNESS, self.center_val)
@@ -841,7 +862,8 @@ class VideoClusterFilterApp:
       center_org_out.release()
       connections_out.release()
       great_circle_out.release()
-      center_ellipse_out.release()
+      center_val_ellipse_out.release()
+      center_org_ellipse_out.release()
       nr_val_out.release()
       nr_org_out.release()
       #connection_length_out.release()
@@ -977,7 +999,7 @@ class GreatCircleSegments:
     return image
 
 class CenterEllipse:
-  def __init__(self, center_x, center_y, x, angle, x_max, r, color, thikness):
+  def __init__(self, center_x, center_y, x, angle, x_max, r, color, thickness):
     self.center_x = center_x
     self.center_y = center_y
     self.x = x
@@ -985,18 +1007,20 @@ class CenterEllipse:
     self.x_max = x_max
     self.r = r
     self.color = color
-    self.thikness = thikness
+    self.thickness = thickness
     
   def calculate_params(self):
-    x_normalized = self.x / self.x_max
-    r1 = self.r - np.tan(x_normalized) * self.r
-    r2 = self.r 
-    return (max(1, 2*r1), max(1, 2*r2))
+    angle = np.arcsin(self.x / self.x_max)
+    r1 = np.cos(angle) * self.r
+    r2 = r1
+    r3 = self.r
+    return (max(1, 2*r1), max(1, 2*r2), max(1, 2*r3))
 
   def draw_ellipse(self, image):
-    width, height = self.calculate_params()
+    width1, width2, height = self.calculate_params()
     angle = self.angle
-    cv2.ellipse(image, (self.center_x, self.center_y), (int(width), int(height)), angle, 0, 360, self.color, self.thikness)
+    cv2.ellipse(image, (self.center_x, self.center_y), (int(width1), int(height)), angle, 90, 270, self.color, self.thickness)
+    cv2.ellipse(image, (self.center_x, self.center_y), (int(width2), int(height)), angle, -90, 90, self.color, self.thickness)
 
 if __name__ == "__main__":
   root = tk.Tk()
